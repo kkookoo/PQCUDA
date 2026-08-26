@@ -78,6 +78,9 @@ foreach(mode IN ITEMS 2 3 5)
     target_compile_definitions(dilithium_wrapper${mode} PRIVATE
         DILITHIUM_MODE=${mode}
         "PQC_DILITHIUM_ENTRY=pqcuda_dilithium${mode}_sign_verify"
+        "PQC_DILITHIUM_KEYPAIR_ENTRY=pqcuda_dilithium${mode}_keypair"
+        "PQC_DILITHIUM_SIGN_ENTRY=pqcuda_dilithium${mode}_sign"
+        "PQC_DILITHIUM_VERIFY_ENTRY=pqcuda_dilithium${mode}_verify"
         "crypto_sign_keypair=dilithium${mode}_crypto_sign_keypair"
         "crypto_sign_signature=dilithium${mode}_crypto_sign_signature"
         "crypto_sign_verify=dilithium${mode}_crypto_sign_verify"

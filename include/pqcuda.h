@@ -23,6 +23,11 @@
   #define PQCUDA_DILITHIUM5_SECRET_KEY_BYTES 4864u
   #define PQCUDA_DILITHIUM5_SIGNATURE_BYTES 4595u
 
+  #define PQCUDA_FRODO976_PUBLIC_KEY_BYTES 15632u
+  #define PQCUDA_FRODO976_SECRET_KEY_BYTES 31296u
+  #define PQCUDA_FRODO976_CIPHERTEXT_BYTES 15744u
+  #define PQCUDA_FRODO976_SHARED_SECRET_BYTES 24u
+
   int pqcuda_frodo_keypair(uint8_t *pk, uint8_t *sk);
 
   int pqcuda_frodo_encapsulate(
@@ -46,6 +51,35 @@
       pqcuda_dilithium_mode mode,
       const uint8_t *message,
       size_t message_length
+  );
+
+  int pqcuda_dilithium_keypair(
+      pqcuda_dilithium_mode mode,
+      uint8_t *public_key,
+      size_t public_key_size,
+      uint8_t *secret_key,
+      size_t secret_key_size
+  );
+
+  int pqcuda_dilithium_sign(
+      pqcuda_dilithium_mode mode,
+      uint8_t *signature,
+      size_t signature_capacity,
+      size_t *signature_length,
+      const uint8_t *message,
+      size_t message_length,
+      const uint8_t *secret_key,
+      size_t secret_key_size
+  );
+
+  int pqcuda_dilithium_verify(
+      pqcuda_dilithium_mode mode,
+      const uint8_t *signature,
+      size_t signature_length,
+      const uint8_t *message,
+      size_t message_length,
+      const uint8_t *public_key,
+      size_t public_key_size
   );
 
   size_t pqcuda_dilithium_public_key_bytes(pqcuda_dilithium_mode mode);
