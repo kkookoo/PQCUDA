@@ -124,6 +124,8 @@ int run_kyber_benchmark() {
     const int selected = read_choice("선택: ");
     if (selected < 1 || selected > 4) return 2;
     std::cout << "\nKyber1024 benchmark (latency ms / throughput ops/s)\n";
+    size_t best_batch = 0;
+    benchmark_stats best_stats{};
     for (size_t batch : batches) {
         std::vector<double> samples;
         for (int run = 0; run < repetitions + 1; ++run) {
@@ -157,9 +159,15 @@ int run_kyber_benchmark() {
             });
             if (run) samples.push_back(t);
         }
-        const char *names[] = {"", "keypair", "encaps", "decaps", "entire"};
-        print_benchmark(names[selected], batch, summarize(samples, batch));
+        benchmark_stats stats = summarize(samples, batch);
+        if (best_batch == 0 || stats.throughput > best_stats.throughput) {
+            best_batch = batch;
+            best_stats = stats;
+        }
     }
+    const char *names[] = {"", "keypair", "encaps", "decaps", "entire"};
+    std::cout << "\nHighest throughput result:\n";
+    print_benchmark(names[selected], best_batch, best_stats);
     return 0;
 }
 
@@ -178,6 +186,8 @@ int run_dilithium_benchmark() {
     const size_t sig_size = pqcuda_dilithium_signature_bytes(mode);
     const std::vector<uint8_t> message{'P','Q','C','U','D','A'};
     const size_t batches[] = {8, 16, 32, 64, 128, 256, 512, 1024, 2024};
+    size_t best_batch = 0;
+    benchmark_stats best_stats{};
     for (size_t batch : batches) {
         std::vector<uint8_t> pk(pk_size), sk(sk_size), sig(sig_size);
         size_t sig_length = 0;
@@ -209,9 +219,15 @@ int run_dilithium_benchmark() {
                 std::chrono::steady_clock::now() - start).count();
             if (run) samples.push_back(elapsed);
         }
-        const char *names[] = {"", "keypair", "sign", "verify", "entire"};
-        print_benchmark(names[operation], batch, summarize(samples, batch));
+        benchmark_stats stats = summarize(samples, batch);
+        if (best_batch == 0 || stats.throughput > best_stats.throughput) {
+            best_batch = batch;
+            best_stats = stats;
+        }
     }
+    const char *names[] = {"", "keypair", "sign", "verify", "entire"};
+    std::cout << "\nHighest throughput result:\n";
+    print_benchmark(names[operation], best_batch, best_stats);
     return 0;
 }
 
