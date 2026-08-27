@@ -123,10 +123,17 @@ int run_kyber_benchmark() {
                  "  1. keypair\n  2. encaps\n  3. decaps\n  4. entire\n";
     const int selected = read_choice("선택: ");
     if (selected < 1 || selected > 4) return 2;
+    const char *names[] = {"", "keypair", "encaps", "decaps", "entire"};
     std::cout << "\nKyber1024 benchmark (latency ms / throughput ops/s)\n";
     size_t best_batch = 0;
     benchmark_stats best_stats{};
+    const size_t batch_count = sizeof(batches) / sizeof(batches[0]);
+    size_t batch_index = 0;
     for (size_t batch : batches) {
+        ++batch_index;
+        std::cout << "[" << (batch_index * 100 / batch_count)
+                  << "%] Benchmarking Kyber1024 " << names[selected]
+                  << " (batch=" << batch << ")...\n" << std::flush;
         std::vector<double> samples;
         for (int run = 0; run < repetitions + 1; ++run) {
             std::vector<uint8_t> pk(PQCUDA_KYBER1024_PUBLIC_KEY_BYTES),
@@ -165,7 +172,6 @@ int run_kyber_benchmark() {
             best_stats = stats;
         }
     }
-    const char *names[] = {"", "keypair", "encaps", "decaps", "entire"};
     std::cout << "\nHighest throughput result:\n";
     print_benchmark(names[selected], best_batch, best_stats);
     return 0;
@@ -186,9 +192,16 @@ int run_dilithium_benchmark() {
     const size_t sig_size = pqcuda_dilithium_signature_bytes(mode);
     const std::vector<uint8_t> message{'P','Q','C','U','D','A'};
     const size_t batches[] = {8, 16, 32, 64, 128, 256, 512, 1024, 2024};
+    const char *names[] = {"", "keypair", "sign", "verify", "entire"};
+    const size_t batch_count = sizeof(batches) / sizeof(batches[0]);
+    size_t batch_index = 0;
     size_t best_batch = 0;
     benchmark_stats best_stats{};
     for (size_t batch : batches) {
+        ++batch_index;
+        std::cout << "[" << (batch_index * 100 / batch_count)
+                  << "%] Benchmarking ML-DSA " << names[operation]
+                  << " (batch=" << batch << ")...\n" << std::flush;
         std::vector<uint8_t> pk(pk_size), sk(sk_size), sig(sig_size);
         size_t sig_length = 0;
         if (pqcuda_dilithium_keypair(mode, pk.data(), pk.size(), sk.data(), sk.size()) != 0 ||
@@ -225,7 +238,6 @@ int run_dilithium_benchmark() {
             best_stats = stats;
         }
     }
-    const char *names[] = {"", "keypair", "sign", "verify", "entire"};
     std::cout << "\nHighest throughput result:\n";
     print_benchmark(names[operation], best_batch, best_stats);
     return 0;
