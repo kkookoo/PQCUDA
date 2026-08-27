@@ -1,0 +1,8 @@
+# Generated build trees and local test artifacts
+**/build*/
+*.hex
+*.o
+*.a
+*.so
+*.exe
+
