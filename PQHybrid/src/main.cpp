@@ -1,4 +1,6 @@
 #include <cctype>
+#include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -89,6 +91,119 @@ bool read_message(std::vector<uint8_t> &message) {
     std::cout << "메시지를 입력하세요: "; std::string line;
     if (!std::getline(std::cin, line)) return false;
     message.assign(line.begin(), line.end()); return true;
+}
+
+struct benchmark_stats { double average, p50, p95, throughput; };
+
+benchmark_stats summarize(std::vector<double> samples, size_t operations) {
+    for (double &value : samples) value /= operations;
+    std::sort(samples.begin(), samples.end());
+    double sum = 0; for (double value : samples) sum += value;
+    auto percentile = [&](double p) {
+        size_t index = static_cast<size_t>(p * (samples.size() - 1));
+        return samples[index];
+    };
+    double average = sum / samples.size();
+    return {average, percentile(.50), percentile(.95),
+            operations * samples.size() * 1000.0 / (sum * operations)};
+}
+
+void print_benchmark(const char *name, size_t batch,
+                     const benchmark_stats &stats) {
+    std::cout << name << " batch=" << batch
+              << " latency_ms(avg/p50/p95)=" << stats.average << "/"
+              << stats.p50 << "/" << stats.p95
+              << " throughput_ops_s=" << stats.throughput << '\n';
+}
+
+int run_kyber_benchmark() {
+    const size_t batches[] = {8, 16, 32, 64, 128, 256, 512, 1024, 2024};
+    const int repetitions = 5;
+    std::cout << "\nKyber1024 benchmark (latency ms / throughput ops/s)\n";
+    for (size_t batch : batches) {
+        std::vector<double> keypair, encaps, decaps, entire;
+        for (int run = 0; run < repetitions + 1; ++run) {
+            std::vector<uint8_t> pk(PQCUDA_KYBER1024_PUBLIC_KEY_BYTES),
+                sk(PQCUDA_KYBER1024_SECRET_KEY_BYTES),
+                ct(PQCUDA_KYBER1024_CIPHERTEXT_BYTES),
+                ss(PQCUDA_KYBER1024_SHARED_SECRET_BYTES);
+            auto measure = [&](auto operation) {
+                auto start = std::chrono::steady_clock::now();
+                for (size_t i = 0; i < batch; ++i) operation();
+                return std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - start).count();
+            };
+            double t = measure([&] { pqcuda_kyber1024_keypair(pk.data(), sk.data()); });
+            if (run) keypair.push_back(t);
+            t = measure([&] { pqcuda_kyber1024_encapsulate(ct.data(), ss.data(), pk.data()); });
+            if (run) encaps.push_back(t);
+            t = measure([&] { pqcuda_kyber1024_decapsulate(ss.data(), ct.data(), sk.data()); });
+            if (run) decaps.push_back(t);
+            t = measure([&] {
+                pqcuda_kyber1024_keypair(pk.data(), sk.data());
+                pqcuda_kyber1024_encapsulate(ct.data(), ss.data(), pk.data());
+                pqcuda_kyber1024_decapsulate(ss.data(), ct.data(), sk.data());
+            });
+            if (run) entire.push_back(t);
+        }
+        print_benchmark("keypair", batch, summarize(keypair, batch));
+        print_benchmark("encaps", batch, summarize(encaps, batch));
+        print_benchmark("decaps", batch, summarize(decaps, batch));
+        print_benchmark("entire", batch, summarize(entire, batch));
+    }
+    return 0;
+}
+
+int run_dilithium_benchmark() {
+    std::cout << "\nML-DSA mode를 선택하세요.\n  2. Dilithium-2\n"
+                 "  3. Dilithium-3\n  5. Dilithium-5\n";
+    int selected = read_choice("선택: ");
+    if (selected != 2 && selected != 3 && selected != 5) return 2;
+    auto mode = static_cast<pqcuda_dilithium_mode>(selected);
+    std::cout << "\nBenchmark 작업을 선택하세요.\n"
+                 "  1. keypair\n  2. sign\n  3. verify\n  4. entire\n";
+    int operation = read_choice("선택: ");
+    if (operation < 1 || operation > 4) return 2;
+    const size_t pk_size = pqcuda_dilithium_public_key_bytes(mode);
+    const size_t sk_size = pqcuda_dilithium_secret_key_bytes(mode);
+    const size_t sig_size = pqcuda_dilithium_signature_bytes(mode);
+    const std::vector<uint8_t> message{'P','Q','C','U','D','A'};
+    const size_t batches[] = {8, 16, 32, 64, 128, 256, 512, 1024, 2024};
+    for (size_t batch : batches) {
+        std::vector<uint8_t> pk(pk_size), sk(sk_size), sig(sig_size);
+        size_t sig_length = 0;
+        if (pqcuda_dilithium_keypair(mode, pk.data(), pk.size(), sk.data(), sk.size()) != 0 ||
+            pqcuda_dilithium_sign(mode, sig.data(), sig.size(), &sig_length,
+                                  message.data(), message.size(), sk.data(), sk.size()) != 0)
+            return 1;
+        std::vector<double> samples;
+        for (int run = 0; run < 6; ++run) {
+            auto start = std::chrono::steady_clock::now();
+            for (size_t i = 0; i < batch; ++i) {
+                if (operation == 1)
+                    pqcuda_dilithium_keypair(mode, pk.data(), pk.size(), sk.data(), sk.size());
+                else if (operation == 2)
+                    pqcuda_dilithium_sign(mode, sig.data(), sig.size(), &sig_length,
+                                          message.data(), message.size(), sk.data(), sk.size());
+                else if (operation == 3)
+                    pqcuda_dilithium_verify(mode, sig.data(), sig_length, message.data(),
+                                            message.size(), pk.data(), pk.size());
+                else {
+                    pqcuda_dilithium_keypair(mode, pk.data(), pk.size(), sk.data(), sk.size());
+                    pqcuda_dilithium_sign(mode, sig.data(), sig.size(), &sig_length,
+                                          message.data(), message.size(), sk.data(), sk.size());
+                    pqcuda_dilithium_verify(mode, sig.data(), sig_length, message.data(),
+                                            message.size(), pk.data(), pk.size());
+                }
+            }
+            double elapsed = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - start).count();
+            if (run) samples.push_back(elapsed);
+        }
+        const char *names[] = {"", "keypair", "sign", "verify", "entire"};
+        print_benchmark(names[operation], batch, summarize(samples, batch));
+    }
+    return 0;
 }
 
 int run_kyber() {
@@ -207,6 +322,16 @@ int run_dilithium() {
     }
     std::cerr << "지원하지 않는 작업입니다.\n"; return 2;
 }
+
+int run_benchmark() {
+    std::cout << "\nBenchmark 알고리즘을 선택하세요.\n"
+                 "  1. ML-KEM (Kyber1024)\n  2. ML-DSA (cuDilithium)\n";
+    int choice = read_choice("선택: ");
+    if (choice == 1) return run_kyber_benchmark();
+    if (choice == 2) return run_dilithium_benchmark();
+    std::cerr << "지원하지 않는 알고리즘입니다.\n";
+    return 2;
+}
 } // namespace
 
 int main(int argc, char **argv) {
@@ -218,10 +343,17 @@ int main(int argc, char **argv) {
         return pqcuda_hybrid_test_mode(static_cast<pqcuda_dilithium_mode>(mode));
     }
     if (argc != 1) { std::fprintf(stderr, "Usage: %s [2|3|5]\n", argv[0]); return 2; }
-    std::cout << "PQCUDA 알고리즘을 선택하세요.\n"
-                 "  1. ML-KEM (Kyber1024)\n  2. ML-DSA (cuDilithium)\n";
+    std::cout << "PQCUDA 메뉴를 선택하세요.\n"
+                 "  1. Run algorithm\n  2. Benchmark\n  3. KAT test\n";
     int algorithm = read_choice("선택: ");
-    if (algorithm == 1) return run_kyber();
-    if (algorithm == 2) return run_dilithium();
-    std::cerr << "지원하지 않는 알고리즘입니다.\n"; return 2;
+    if (algorithm == 1) {
+        std::cout << "\n알고리즘을 선택하세요.\n"
+                     "  1. ML-KEM (Kyber1024)\n  2. ML-DSA (cuDilithium)\n";
+        int selected = read_choice("선택: ");
+        if (selected == 1) return run_kyber();
+        if (selected == 2) return run_dilithium();
+    }
+    if (algorithm == 2) return run_benchmark();
+    if (algorithm == 3) { std::cout << "아직 준비중입니다.\n"; return 0; }
+    std::cerr << "지원하지 않는 메뉴입니다.\n"; return 2;
 }
