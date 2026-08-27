@@ -108,12 +108,14 @@ benchmark_stats summarize(std::vector<double> samples, size_t operations) {
             operations * samples.size() * 1000.0 / (sum * operations)};
 }
 
-void print_benchmark(const char *name, size_t batch,
+void print_benchmark(const char *algorithm, const char *name, size_t batch,
                      const benchmark_stats &stats) {
-    std::cout << name << " batch=" << batch
-              << " latency_ms(avg/p50/p95)=" << stats.average << "/"
-              << stats.p50 << "/" << stats.p95
-              << " throughput_ops_s=" << stats.throughput << '\n';
+    std::cout << algorithm << " " << name << " benchmark result:\n"
+              << "  batch=" << batch << '\n'
+              << "  latency_ms_avg=" << stats.average << '\n'
+              << "  latency_ms_p50=" << stats.p50 << '\n'
+              << "  latency_ms_p95=" << stats.p95 << '\n'
+              << "  throughput_ops_s=" << stats.throughput << "\n\n";
 }
 
 int run_kyber_benchmark() {
@@ -124,7 +126,8 @@ int run_kyber_benchmark() {
     const int selected = read_choice("선택: ");
     if (selected < 1 || selected > 4) return 2;
     const char *names[] = {"", "keypair", "encaps", "decaps", "entire"};
-    std::cout << "\nKyber1024 benchmark (latency ms / throughput ops/s)\n";
+    std::cout << "\nML-KEM " << names[selected]
+              << " benchmark (latency ms / throughput ops/s)\n";
     size_t best_batch = 0;
     benchmark_stats best_stats{};
     const size_t batch_count = sizeof(batches) / sizeof(batches[0]);
@@ -172,8 +175,7 @@ int run_kyber_benchmark() {
             best_stats = stats;
         }
     }
-    std::cout << "\nHighest throughput result:\n";
-    print_benchmark(names[selected], best_batch, best_stats);
+    print_benchmark("ML-KEM", names[selected], best_batch, best_stats);
     return 0;
 }
 
@@ -238,8 +240,7 @@ int run_dilithium_benchmark() {
             best_stats = stats;
         }
     }
-    std::cout << "\nHighest throughput result:\n";
-    print_benchmark(names[operation], best_batch, best_stats);
+    print_benchmark("ML-DSA", names[operation], best_batch, best_stats);
     return 0;
 }
 
