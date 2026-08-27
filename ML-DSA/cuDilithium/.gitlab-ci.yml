@@ -1,0 +1,39 @@
+stages:
+  - build
+  - test
+  - bench
+
+build on A100:
+  stage: build
+  tags:
+    - gpu, a100
+  script:
+    - cmake -S . -B build -DCMAKE_CUDA_ARCHITECTURES=80-real
+    - cmake --build build -j
+  artifacts:
+    paths:
+      - build/
+
+ctest on A100:
+  stage: test
+  tags:
+    - gpu, a100
+  script:
+    - cd build/
+    - ctest -VV
+  dependencies:
+    - build on A100
+
+bench on A100:
+  stage: bench
+  tags:
+    - gpu, a100
+  script:
+    - ./build/bin/bench_cuDilithium2
+    - ./build/bin/bench_cuDilithium3
+    - ./build/bin/bench_cuDilithium5
+    - ./build/bin/bench_ntt_radix2
+    - ./build/bin/bench_ntt_radix8
+    - ./build/bin/bench_rej_sampling
+  dependencies:
+    - build on A100
