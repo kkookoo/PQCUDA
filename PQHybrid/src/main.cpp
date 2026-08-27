@@ -119,37 +119,46 @@ void print_benchmark(const char *name, size_t batch,
 int run_kyber_benchmark() {
     const size_t batches[] = {8, 16, 32, 64, 128, 256, 512, 1024, 2024};
     const int repetitions = 5;
+    std::cout << "\nML-KEM Benchmark 작업을 선택하세요.\n"
+                 "  1. keypair\n  2. encaps\n  3. decaps\n  4. entire\n";
+    const int selected = read_choice("선택: ");
+    if (selected < 1 || selected > 4) return 2;
     std::cout << "\nKyber1024 benchmark (latency ms / throughput ops/s)\n";
     for (size_t batch : batches) {
-        std::vector<double> keypair, encaps, decaps, entire;
+        std::vector<double> samples;
         for (int run = 0; run < repetitions + 1; ++run) {
             std::vector<uint8_t> pk(PQCUDA_KYBER1024_PUBLIC_KEY_BYTES),
                 sk(PQCUDA_KYBER1024_SECRET_KEY_BYTES),
                 ct(PQCUDA_KYBER1024_CIPHERTEXT_BYTES),
                 ss(PQCUDA_KYBER1024_SHARED_SECRET_BYTES);
+            if (selected != 1 && pqcuda_kyber1024_keypair(pk.data(), sk.data()) != 0)
+                return 1;
+            if (selected == 3 &&
+                pqcuda_kyber1024_encapsulate(ct.data(), ss.data(), pk.data()) != 0)
+                return 1;
             auto measure = [&](auto operation) {
                 auto start = std::chrono::steady_clock::now();
                 for (size_t i = 0; i < batch; ++i) operation();
                 return std::chrono::duration<double, std::milli>(
                     std::chrono::steady_clock::now() - start).count();
             };
-            double t = measure([&] { pqcuda_kyber1024_keypair(pk.data(), sk.data()); });
-            if (run) keypair.push_back(t);
-            t = measure([&] { pqcuda_kyber1024_encapsulate(ct.data(), ss.data(), pk.data()); });
-            if (run) encaps.push_back(t);
-            t = measure([&] { pqcuda_kyber1024_decapsulate(ss.data(), ct.data(), sk.data()); });
-            if (run) decaps.push_back(t);
-            t = measure([&] {
+            double t = measure([&] {
+                if (selected == 1) {
+                    pqcuda_kyber1024_keypair(pk.data(), sk.data());
+                } else if (selected == 2) {
+                    pqcuda_kyber1024_encapsulate(ct.data(), ss.data(), pk.data());
+                } else if (selected == 3) {
+                    pqcuda_kyber1024_decapsulate(ss.data(), ct.data(), sk.data());
+                } else {
                 pqcuda_kyber1024_keypair(pk.data(), sk.data());
                 pqcuda_kyber1024_encapsulate(ct.data(), ss.data(), pk.data());
                 pqcuda_kyber1024_decapsulate(ss.data(), ct.data(), sk.data());
+                }
             });
-            if (run) entire.push_back(t);
+            if (run) samples.push_back(t);
         }
-        print_benchmark("keypair", batch, summarize(keypair, batch));
-        print_benchmark("encaps", batch, summarize(encaps, batch));
-        print_benchmark("decaps", batch, summarize(decaps, batch));
-        print_benchmark("entire", batch, summarize(entire, batch));
+        const char *names[] = {"", "keypair", "encaps", "decaps", "entire"};
+        print_benchmark(names[selected], batch, summarize(samples, batch));
     }
     return 0;
 }
