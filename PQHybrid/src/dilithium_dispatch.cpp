@@ -9,7 +9,17 @@ extern "C" int pqcuda_dilithium##mode##_keypair(uint8_t *, uint8_t *); \
 extern "C" int pqcuda_dilithium##mode##_sign( \
     uint8_t *, size_t *, const uint8_t *, size_t, const uint8_t *); \
 extern "C" int pqcuda_dilithium##mode##_verify( \
-    const uint8_t *, size_t, const uint8_t *, size_t, const uint8_t *)
+    const uint8_t *, size_t, const uint8_t *, size_t, const uint8_t *); \
+extern "C" int pqcuda_dilithium##mode##_keypair_batch( \
+    uint8_t *, uint8_t *, size_t); \
+extern "C" int pqcuda_dilithium##mode##_sign_batch( \
+    uint8_t *, size_t *, const uint8_t *, size_t, const uint8_t *, size_t); \
+extern "C" int pqcuda_dilithium##mode##_verify_batch( \
+    const uint8_t *, size_t, const uint8_t *, size_t, const uint8_t *, size_t); \
+extern "C" int pqcuda_dilithium##mode##_tune_sign_kernels(void); \
+extern "C" size_t pqcuda_dilithium##mode##_tuned_stage_count(void); \
+extern "C" const char *pqcuda_dilithium##mode##_tuned_stage_name(size_t); \
+extern "C" const char *pqcuda_dilithium##mode##_tuned_variant_name(size_t)
 
 DECLARE_MODE_API(2);
 DECLARE_MODE_API(3);
@@ -44,6 +54,66 @@ extern "C" int pqcuda_dilithium_sign_verify(
 {
     return pqcuda_dilithium_sign_verify_mode(
         PQCUDA_DILITHIUM_MODE_2, message, message_length);
+}
+
+extern "C" int pqcuda_dilithium_tune_sign_kernels(
+    pqcuda_dilithium_mode mode)
+{
+    switch (mode) {
+    case PQCUDA_DILITHIUM_MODE_2:
+        return pqcuda_dilithium2_tune_sign_kernels();
+    case PQCUDA_DILITHIUM_MODE_3:
+        return pqcuda_dilithium3_tune_sign_kernels();
+    case PQCUDA_DILITHIUM_MODE_5:
+        return pqcuda_dilithium5_tune_sign_kernels();
+    default:
+        return -1;
+    }
+}
+
+extern "C" size_t pqcuda_dilithium_tuned_stage_count(
+    pqcuda_dilithium_mode mode)
+{
+    switch (mode) {
+    case PQCUDA_DILITHIUM_MODE_2:
+        return pqcuda_dilithium2_tuned_stage_count();
+    case PQCUDA_DILITHIUM_MODE_3:
+        return pqcuda_dilithium3_tuned_stage_count();
+    case PQCUDA_DILITHIUM_MODE_5:
+        return pqcuda_dilithium5_tuned_stage_count();
+    default:
+        return 0;
+    }
+}
+
+extern "C" const char *pqcuda_dilithium_tuned_stage_name(
+    pqcuda_dilithium_mode mode, size_t stage_index)
+{
+    switch (mode) {
+    case PQCUDA_DILITHIUM_MODE_2:
+        return pqcuda_dilithium2_tuned_stage_name(stage_index);
+    case PQCUDA_DILITHIUM_MODE_3:
+        return pqcuda_dilithium3_tuned_stage_name(stage_index);
+    case PQCUDA_DILITHIUM_MODE_5:
+        return pqcuda_dilithium5_tuned_stage_name(stage_index);
+    default:
+        return nullptr;
+    }
+}
+
+extern "C" const char *pqcuda_dilithium_tuned_variant_name(
+    pqcuda_dilithium_mode mode, size_t stage_index)
+{
+    switch (mode) {
+    case PQCUDA_DILITHIUM_MODE_2:
+        return pqcuda_dilithium2_tuned_variant_name(stage_index);
+    case PQCUDA_DILITHIUM_MODE_3:
+        return pqcuda_dilithium3_tuned_variant_name(stage_index);
+    case PQCUDA_DILITHIUM_MODE_5:
+        return pqcuda_dilithium5_tuned_variant_name(stage_index);
+    default:
+        return nullptr;
+    }
 }
 
 extern "C" size_t pqcuda_dilithium_public_key_bytes(
@@ -97,6 +167,25 @@ extern "C" int pqcuda_dilithium_keypair(
     }
 }
 
+extern "C" int pqcuda_dilithium_keypair_batch(
+    pqcuda_dilithium_mode mode, uint8_t *public_keys, size_t public_keys_size,
+    uint8_t *secret_keys, size_t secret_keys_size, size_t batch_size)
+{
+    if (public_keys == nullptr || secret_keys == nullptr || batch_size == 0 ||
+        public_keys_size != pqcuda_dilithium_public_key_bytes(mode) * batch_size ||
+        secret_keys_size != pqcuda_dilithium_secret_key_bytes(mode) * batch_size)
+        return -1;
+    switch (mode) {
+    case PQCUDA_DILITHIUM_MODE_2:
+        return pqcuda_dilithium2_keypair_batch(public_keys, secret_keys, batch_size);
+    case PQCUDA_DILITHIUM_MODE_3:
+        return pqcuda_dilithium3_keypair_batch(public_keys, secret_keys, batch_size);
+    case PQCUDA_DILITHIUM_MODE_5:
+        return pqcuda_dilithium5_keypair_batch(public_keys, secret_keys, batch_size);
+    default: return -1;
+    }
+}
+
 extern "C" int pqcuda_dilithium_sign(
     pqcuda_dilithium_mode mode,
     uint8_t *signature,
@@ -120,6 +209,31 @@ extern "C" int pqcuda_dilithium_sign(
     }
 }
 
+extern "C" int pqcuda_dilithium_sign_batch(
+    pqcuda_dilithium_mode mode, uint8_t *signatures, size_t signatures_size,
+    size_t *signature_length, const uint8_t *messages, size_t message_length,
+    const uint8_t *secret_keys, size_t secret_keys_size, size_t batch_size)
+{
+    const size_t signature_size = pqcuda_dilithium_signature_bytes(mode);
+    if (signatures == nullptr || signature_length == nullptr ||
+        (messages == nullptr && message_length != 0) || secret_keys == nullptr ||
+        batch_size == 0 || signatures_size != signature_size * batch_size ||
+        secret_keys_size != pqcuda_dilithium_secret_key_bytes(mode) * batch_size)
+        return -1;
+    switch (mode) {
+    case PQCUDA_DILITHIUM_MODE_2:
+        return pqcuda_dilithium2_sign_batch(signatures, signature_length,
+            messages, message_length, secret_keys, batch_size);
+    case PQCUDA_DILITHIUM_MODE_3:
+        return pqcuda_dilithium3_sign_batch(signatures, signature_length,
+            messages, message_length, secret_keys, batch_size);
+    case PQCUDA_DILITHIUM_MODE_5:
+        return pqcuda_dilithium5_sign_batch(signatures, signature_length,
+            messages, message_length, secret_keys, batch_size);
+    default: return -1;
+    }
+}
+
 extern "C" int pqcuda_dilithium_verify(
     pqcuda_dilithium_mode mode,
     const uint8_t *signature,
@@ -137,6 +251,30 @@ extern "C" int pqcuda_dilithium_verify(
     case PQCUDA_DILITHIUM_MODE_2: return pqcuda_dilithium2_verify(signature, signature_length, message, message_length, public_key);
     case PQCUDA_DILITHIUM_MODE_3: return pqcuda_dilithium3_verify(signature, signature_length, message, message_length, public_key);
     case PQCUDA_DILITHIUM_MODE_5: return pqcuda_dilithium5_verify(signature, signature_length, message, message_length, public_key);
+    default: return -1;
+    }
+}
+
+extern "C" int pqcuda_dilithium_verify_batch(
+    pqcuda_dilithium_mode mode, const uint8_t *signatures,
+    size_t signature_length, const uint8_t *messages, size_t message_length,
+    const uint8_t *public_keys, size_t public_keys_size, size_t batch_size)
+{
+    if (signatures == nullptr || (messages == nullptr && message_length != 0) ||
+        public_keys == nullptr || batch_size == 0 ||
+        signature_length != pqcuda_dilithium_signature_bytes(mode) ||
+        public_keys_size != pqcuda_dilithium_public_key_bytes(mode) * batch_size)
+        return -1;
+    switch (mode) {
+    case PQCUDA_DILITHIUM_MODE_2:
+        return pqcuda_dilithium2_verify_batch(signatures, signature_length,
+            messages, message_length, public_keys, batch_size);
+    case PQCUDA_DILITHIUM_MODE_3:
+        return pqcuda_dilithium3_verify_batch(signatures, signature_length,
+            messages, message_length, public_keys, batch_size);
+    case PQCUDA_DILITHIUM_MODE_5:
+        return pqcuda_dilithium5_verify_batch(signatures, signature_length,
+            messages, message_length, public_keys, batch_size);
     default: return -1;
     }
 }

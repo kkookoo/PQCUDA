@@ -48,6 +48,25 @@ struct task_lut {
     copy_lut_element *d_copy_lut;
 };
 
+enum dilithium_sign_tuning_stage {
+    DILITHIUM_TUNE_SHAKE = 0,
+    DILITHIUM_TUNE_MATRIX_EXPAND,
+    DILITHIUM_TUNE_UNPACK_NTT,
+    DILITHIUM_TUNE_COMPUTE_Y,
+    DILITHIUM_TUNE_COMPUTE_W,
+    DILITHIUM_TUNE_COMPUTE_CP,
+    DILITHIUM_TUNE_REJECTION,
+    DILITHIUM_TUNE_STAGE_COUNT
+};
+
+int crypto_sign_set_kernel_variant(int stage, int variant);
+int crypto_sign_get_kernel_variant(int stage);
+int crypto_sign_kernel_variant_count(int stage);
+const char *crypto_sign_tuning_stage_name(int stage);
+const char *crypto_sign_kernel_variant_name(int stage, int variant);
+int crypto_sign_tuning_begin(int stage);
+float crypto_sign_tuning_end();
+
 int crypto_sign_signature(uint8_t *sig, size_t sig_pitch, size_t *siglen,
                           const uint8_t *m, size_t m_pitch, size_t mlen,
                           const uint8_t *sk,

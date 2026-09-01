@@ -23,6 +23,124 @@
 #include "util.cuh"
 #include "verify.cuh"
 
+namespace {
+
+int selected_kernel_variants[DILITHIUM_TUNE_STAGE_COUNT] = {
+        1, // notmp_shake_new_kernel
+        1, // polyvec_matrix_expand_opt_kernel
+        2, // unpack_fuse_ntt_radix2_opt_kernel
+        1, // compute_y_opt_kernel
+        1, // compute_w_128t_kernel
+        0, // compute_cp_kernel
+        1  // rej_loop_128t_kernel
+};
+
+const int kernel_variant_counts[DILITHIUM_TUNE_STAGE_COUNT] = {
+        2, 2, 3, 2, 2, 2, 2
+};
+
+const char *const tuning_stage_names[DILITHIUM_TUNE_STAGE_COUNT] = {
+        "shake", "matrix_expand", "unpack_ntt", "compute_y",
+        "compute_w", "compute_cp", "rejection_loop"
+};
+
+int measured_tuning_stage = -1;
+float measured_tuning_ms = 0.0f;
+cudaEvent_t tuning_start_event = nullptr;
+cudaEvent_t tuning_stop_event = nullptr;
+
+bool valid_tuning_stage(int stage) {
+    return stage >= 0 && stage < DILITHIUM_TUNE_STAGE_COUNT;
+}
+
+void tuning_start(int stage, cudaStream_t stream) {
+    if (stage == measured_tuning_stage)
+        cudaEventRecord(tuning_start_event, stream);
+}
+
+void tuning_stop(int stage, cudaStream_t stream) {
+    if (stage != measured_tuning_stage) return;
+    cudaEventRecord(tuning_stop_event, stream);
+    cudaEventSynchronize(tuning_stop_event);
+    float milliseconds = 0.0f;
+    cudaEventElapsedTime(&milliseconds, tuning_start_event, tuning_stop_event);
+    measured_tuning_ms += milliseconds;
+}
+
+} // namespace
+
+int crypto_sign_set_kernel_variant(int stage, int variant) {
+    if (!valid_tuning_stage(stage) || variant < 0 ||
+        variant >= kernel_variant_counts[stage]) return -1;
+    selected_kernel_variants[stage] = variant;
+    return 0;
+}
+
+int crypto_sign_get_kernel_variant(int stage) {
+    return valid_tuning_stage(stage) ? selected_kernel_variants[stage] : -1;
+}
+
+int crypto_sign_kernel_variant_count(int stage) {
+    return valid_tuning_stage(stage) ? kernel_variant_counts[stage] : 0;
+}
+
+const char *crypto_sign_tuning_stage_name(int stage) {
+    return valid_tuning_stage(stage) ? tuning_stage_names[stage] : nullptr;
+}
+
+const char *crypto_sign_kernel_variant_name(int stage, int variant) {
+    if (!valid_tuning_stage(stage) || variant < 0 ||
+        variant >= kernel_variant_counts[stage]) return nullptr;
+    switch (stage) {
+    case DILITHIUM_TUNE_SHAKE:
+        return variant == 0 ? "notmp_shake_kernel"
+                            : "notmp_shake_new_kernel";
+    case DILITHIUM_TUNE_MATRIX_EXPAND:
+        return variant == 0 ? "polyvec_matrix_expand_kernel"
+                            : "polyvec_matrix_expand_opt_kernel";
+    case DILITHIUM_TUNE_UNPACK_NTT:
+        if (variant == 0) return "unpack_fuse_ntt_kernel";
+        return variant == 1 ? "unpack_fuse_ntt_radix2_kernel"
+                            : "unpack_fuse_ntt_radix2_opt_kernel";
+    case DILITHIUM_TUNE_COMPUTE_Y:
+        return variant == 0 ? "compute_y_kernel" : "compute_y_opt_kernel";
+    case DILITHIUM_TUNE_COMPUTE_W:
+        return variant == 0 ? "compute_w_32t_kernel"
+                            : "compute_w_128t_kernel";
+    case DILITHIUM_TUNE_COMPUTE_CP:
+        return variant == 0 ? "compute_cp_kernel" : "compute_cp_opt_kernel";
+    case DILITHIUM_TUNE_REJECTION:
+        return variant == 0 ? "rej_loop_32t_kernel"
+                            : "rej_loop_128t_kernel";
+    default:
+        return nullptr;
+    }
+}
+
+int crypto_sign_tuning_begin(int stage) {
+    if (!valid_tuning_stage(stage) || measured_tuning_stage >= 0) return -1;
+    if (cudaEventCreate(&tuning_start_event) != cudaSuccess) return -1;
+    if (cudaEventCreate(&tuning_stop_event) != cudaSuccess) {
+        cudaEventDestroy(tuning_start_event);
+        tuning_start_event = nullptr;
+        return -1;
+    }
+    measured_tuning_ms = 0.0f;
+    measured_tuning_stage = stage;
+    return 0;
+}
+
+float crypto_sign_tuning_end() {
+    const float result = measured_tuning_stage >= 0 ? measured_tuning_ms : -1.0f;
+    measured_tuning_stage = -1;
+    measured_tuning_ms = 0.0f;
+    if (tuning_start_event) cudaEventDestroy(tuning_start_event);
+    if (tuning_stop_event) cudaEventDestroy(tuning_stop_event);
+    tuning_start_event = nullptr;
+    tuning_stop_event = nullptr;
+    return result;
+}
+
 int crypto_sign_keypair(uint8_t *pk, uint8_t *sk,
                         uint8_t *d_keypair_mem_pool, size_t keypair_mem_pool_pitch,
                         size_t batch_size, cudaStream_t stream, size_t rand_index) {
@@ -47,6 +165,7 @@ int crypto_sign_keypair(uint8_t *pk, uint8_t *sk,
     auto *d_t1 = (int32_t *) (d_keypair_mem_pool + byte_size);
     cudaMemset2DAsync(d_t1, keypair_mem_pool_pitch, 0, DILITHIUM_K * DILITHIUM_N * sizeof(int32_t), batch_size, stream);
 
+    // Thread per Block = 32, Block per Grid = batch_size, 블록 수 만큼 처리 실행(키 생성)
     gpu_keypair<<<batch_size, 32, 0, stream>>>(d_pk_rho, d_pk_t1,
                                                d_sk_rho, d_sk_key, d_sk_tr,
                                                d_sk_s1_packed, d_sk_s2_packed, d_sk_t0_packed,
@@ -134,8 +253,15 @@ int crypto_sign_signature(uint8_t *sig, size_t sig_pitch, size_t *siglen,
     //        timer_shake_kernel.start();
     //        notmp_shake_kernel<SHAKE256_RATE><<<batch_size, dim3(32, 1), SHAKE256_RATE, stream>>>(
     //                d_mu, d_sign_mem_pool_pitch, CRHBYTES, d_tr, d_sign_mem_pool_pitch, SEEDBYTES + mlen, batch_size);
-    notmp_shake_new_kernel<SHAKE256_RATE, 0x1f><<<(batch_size + 3) / 4, dim3(32, 4), SHAKE256_RATE, stream>>>(
-            d_mu, d_sign_mem_pool_pitch, CRHBYTES, d_tr, d_sign_mem_pool_pitch, SEEDBYTES + mlen, batch_size);
+    tuning_start(DILITHIUM_TUNE_SHAKE, stream);
+    if (selected_kernel_variants[DILITHIUM_TUNE_SHAKE] == 0) {
+        notmp_shake_kernel<SHAKE256_RATE><<<batch_size, dim3(32, 1), SHAKE256_RATE, stream>>>(
+                d_mu, d_sign_mem_pool_pitch, CRHBYTES, d_tr, d_sign_mem_pool_pitch, SEEDBYTES + mlen, batch_size);
+    } else {
+        notmp_shake_new_kernel<SHAKE256_RATE, 0x1f><<<(batch_size + 3) / 4, dim3(32, 4), SHAKE256_RATE, stream>>>(
+                d_mu, d_sign_mem_pool_pitch, CRHBYTES, d_tr, d_sign_mem_pool_pitch, SEEDBYTES + mlen, batch_size);
+    }
+    tuning_stop(DILITHIUM_TUNE_SHAKE, stream);
     //        cudaStreamSynchronize(stream);
     //        timer_shake_kernel.stop();
     //    }
@@ -147,18 +273,32 @@ int crypto_sign_signature(uint8_t *sig, size_t sig_pitch, size_t *siglen,
     cudaMemcpy2DAsync(d_rhoprime, d_sign_mem_pool_pitch, h_rhoprime, CRHBYTES, CRHBYTES, batch_size, cudaMemcpyHostToDevice, stream);
     cudaFreeHost(h_rhoprime);
 #else
-    notmp_shake_new_kernel<SHAKE256_RATE, 0x1f><<<(batch_size + 3) / 4, dim3(32, 4), SHAKE256_RATE, stream>>>(
-            d_rhoprime, d_sign_mem_pool_pitch, CRHBYTES, d_key, d_sign_mem_pool_pitch, SEEDBYTES + CRHBYTES,
-            batch_size);
+    tuning_start(DILITHIUM_TUNE_SHAKE, stream);
+    if (selected_kernel_variants[DILITHIUM_TUNE_SHAKE] == 0) {
+        notmp_shake_kernel<SHAKE256_RATE><<<batch_size, dim3(32, 1), SHAKE256_RATE, stream>>>(
+                d_rhoprime, d_sign_mem_pool_pitch, CRHBYTES, d_key, d_sign_mem_pool_pitch,
+                SEEDBYTES + CRHBYTES, batch_size);
+    } else {
+        notmp_shake_new_kernel<SHAKE256_RATE, 0x1f><<<(batch_size + 3) / 4, dim3(32, 4), SHAKE256_RATE, stream>>>(
+                d_rhoprime, d_sign_mem_pool_pitch, CRHBYTES, d_key, d_sign_mem_pool_pitch,
+                SEEDBYTES + CRHBYTES, batch_size);
+    }
+    tuning_stop(DILITHIUM_TUNE_SHAKE, stream);
 #endif
 
     //    CUDATimer timer_mat_expand("mat_expand");
     //    timer_mat_expand.start();
     /* Expand matrix and transform vectors */
     //    polyvec_matrix_expand_kernel<<<batch_size, 32, 0, stream>>>(d_mat, d_rho, d_sign_mem_pool_pitch);
-    polyvec_matrix_expand_opt_kernel<<<(batch_size + 3) / 4, dim3(32, 4), 0, stream>>>(d_mat, d_rho,
-                                                                                       d_sign_mem_pool_pitch,
-                                                                                       batch_size);
+    tuning_start(DILITHIUM_TUNE_MATRIX_EXPAND, stream);
+    if (selected_kernel_variants[DILITHIUM_TUNE_MATRIX_EXPAND] == 0) {
+        polyvec_matrix_expand_kernel<<<batch_size, 32, 0, stream>>>(
+                d_mat, d_rho, d_sign_mem_pool_pitch);
+    } else {
+        polyvec_matrix_expand_opt_kernel<<<(batch_size + 3) / 4, dim3(32, 4), 0, stream>>>(
+                d_mat, d_rho, d_sign_mem_pool_pitch, batch_size);
+    }
+    tuning_stop(DILITHIUM_TUNE_MATRIX_EXPAND, stream);
     //    timer_mat_expand.stop();
 
     //    CUDATimer timer_ntt("ntt");
@@ -179,10 +319,26 @@ int crypto_sign_signature(uint8_t *sig, size_t sig_pitch, size_t *siglen,
     //            d_sk_s1_packed, d_sk_s2_packed, d_sk_t0_packed,
     //            d_sign_mem_pool_pitch);
 
-    unpack_fuse_ntt_radix2_opt_kernel<<<batch_size, 128, 0, stream>>>(
-            d_s1, d_s2, d_t0,
-            d_sk_s1_packed, d_sk_s2_packed, d_sk_t0_packed,
-            d_sign_mem_pool_pitch);
+    tuning_start(DILITHIUM_TUNE_UNPACK_NTT, stream);
+    if (selected_kernel_variants[DILITHIUM_TUNE_UNPACK_NTT] == 0) {
+        unpack_fuse_ntt_kernel<DILITHIUM_L, POLYETA_PACKEDBYTES><<<batch_size, 32, 0, stream>>>(
+                d_s1, d_sk_s1_packed, d_sign_mem_pool_pitch);
+        unpack_fuse_ntt_kernel<DILITHIUM_K, POLYETA_PACKEDBYTES><<<batch_size, 32, 0, stream>>>(
+                d_s2, d_sk_s2_packed, d_sign_mem_pool_pitch);
+        unpack_fuse_ntt_kernel<DILITHIUM_K, POLYT0_PACKEDBYTES><<<batch_size, 32, 0, stream>>>(
+                d_t0, d_sk_t0_packed, d_sign_mem_pool_pitch);
+    } else if (selected_kernel_variants[DILITHIUM_TUNE_UNPACK_NTT] == 1) {
+        unpack_fuse_ntt_radix2_kernel<<<batch_size, 128, 0, stream>>>(
+                d_s1, d_s2, d_t0,
+                d_sk_s1_packed, d_sk_s2_packed, d_sk_t0_packed,
+                d_sign_mem_pool_pitch);
+    } else {
+        unpack_fuse_ntt_radix2_opt_kernel<<<batch_size, 128, 0, stream>>>(
+                d_s1, d_s2, d_t0,
+                d_sk_s1_packed, d_sk_s2_packed, d_sk_t0_packed,
+                d_sign_mem_pool_pitch);
+    }
+    tuning_stop(DILITHIUM_TUNE_UNPACK_NTT, stream);
     //    cudaStreamSynchronize(stream);
     //    timer_unpack.stop();
 
@@ -244,10 +400,17 @@ rej:
 
 //        CUDATimer timer_y("compute_y");
 //        timer_y.start();
-        compute_y_opt_kernel<<<(exec_threshold + 3) / 4, dim3(32, 4), 0, stream>>>(
-                d_y,
-                d_rhoprime,
-                lut.d_exec_lut, d_sign_mem_pool_pitch, d_sign_mem_pool_pitch, exec_threshold);
+        tuning_start(DILITHIUM_TUNE_COMPUTE_Y, stream);
+        if (selected_kernel_variants[DILITHIUM_TUNE_COMPUTE_Y] == 0) {
+            compute_y_kernel<<<exec_threshold, 32, 0, stream>>>(
+                    d_y, d_rhoprime, lut.d_exec_lut,
+                    d_sign_mem_pool_pitch, d_sign_mem_pool_pitch);
+        } else {
+            compute_y_opt_kernel<<<(exec_threshold + 3) / 4, dim3(32, 4), 0, stream>>>(
+                    d_y, d_rhoprime, lut.d_exec_lut,
+                    d_sign_mem_pool_pitch, d_sign_mem_pool_pitch, exec_threshold);
+        }
+        tuning_stop(DILITHIUM_TUNE_COMPUTE_Y, stream);
 //        cudaStreamSynchronize(stream);
 //        timer_y.stop();
 
@@ -262,20 +425,33 @@ rej:
 
 //        CUDATimer timer_w("compute_w");
 //        timer_w.start();
-        compute_w_128t_kernel<<<exec_threshold, 128, 0, stream>>>(
-                d_w0, d_w1, d_w1_packed,
-                d_y, d_mat,
-                lut.d_exec_lut, d_sign_mem_pool_pitch, d_sign_mem_pool_pitch);
+        tuning_start(DILITHIUM_TUNE_COMPUTE_W, stream);
+        if (selected_kernel_variants[DILITHIUM_TUNE_COMPUTE_W] == 0) {
+            compute_w_32t_kernel<<<exec_threshold, 32, 0, stream>>>(
+                    d_z, d_w0, d_w1, d_w1_packed, d_y, d_mat,
+                    lut.d_exec_lut, d_sign_mem_pool_pitch, d_sign_mem_pool_pitch);
+        } else {
+            compute_w_128t_kernel<<<exec_threshold, 128, 0, stream>>>(
+                    d_w0, d_w1, d_w1_packed, d_y, d_mat,
+                    lut.d_exec_lut, d_sign_mem_pool_pitch, d_sign_mem_pool_pitch);
+        }
+        tuning_stop(DILITHIUM_TUNE_COMPUTE_W, stream);
 //        cudaStreamSynchronize(stream);
 //        timer_w.stop();
 
 //        CUDATimer timer_cp("compute_cp");
 //        timer_cp.start();
-        compute_cp_kernel<<<exec_threshold, 32, 0, stream>>>(
-                d_cp, d_mu,
-                d_seed,
-                d_mu,
-                lut.d_exec_lut, d_sign_mem_pool_pitch, d_sign_mem_pool_pitch);
+        tuning_start(DILITHIUM_TUNE_COMPUTE_CP, stream);
+        if (selected_kernel_variants[DILITHIUM_TUNE_COMPUTE_CP] == 0) {
+            compute_cp_kernel<<<exec_threshold, 32, 0, stream>>>(
+                    d_cp, d_mu, d_seed, d_mu, lut.d_exec_lut,
+                    d_sign_mem_pool_pitch, d_sign_mem_pool_pitch);
+        } else {
+            compute_cp_opt_kernel<<<(exec_threshold + 3) / 4, dim3(32, 4), 0, stream>>>(
+                    d_cp, d_mu, d_seed, d_mu, lut.d_exec_lut,
+                    d_sign_mem_pool_pitch, d_sign_mem_pool_pitch, exec_threshold);
+        }
+        tuning_stop(DILITHIUM_TUNE_COMPUTE_CP, stream);
 //        cudaStreamSynchronize(stream);
 //        timer_cp.stop();
 
@@ -295,12 +471,19 @@ rej:
 
 //        CUDATimer timer_rej("rej");
 //        timer_rej.start();
-        rej_loop_128t_kernel<<<exec_threshold, 128, 0, stream>>>(
-                d_y, d_z, d_w0, d_w1, d_cp,
-                d_z_packed, d_hint,
-                lut.d_done_lut,
-                d_s1, d_s2, d_t0,
-                lut.d_exec_lut, d_sign_mem_pool_pitch, d_sign_mem_pool_pitch);
+        tuning_start(DILITHIUM_TUNE_REJECTION, stream);
+        if (selected_kernel_variants[DILITHIUM_TUNE_REJECTION] == 0) {
+            rej_loop_32t_kernel<<<exec_threshold, 32, 0, stream>>>(
+                    d_y, d_z, d_w0, d_w1, d_cp, d_z_packed, d_hint,
+                    lut.d_done_lut, d_s1, d_s2, d_t0, lut.d_exec_lut,
+                    d_sign_mem_pool_pitch, d_sign_mem_pool_pitch);
+        } else {
+            rej_loop_128t_kernel<<<exec_threshold, 128, 0, stream>>>(
+                    d_y, d_z, d_w0, d_w1, d_cp, d_z_packed, d_hint,
+                    lut.d_done_lut, d_s1, d_s2, d_t0, lut.d_exec_lut,
+                    d_sign_mem_pool_pitch, d_sign_mem_pool_pitch);
+        }
+        tuning_stop(DILITHIUM_TUNE_REJECTION, stream);
 //        cudaStreamSynchronize(stream);
 //        timer_rej.stop();
 
@@ -343,26 +526,49 @@ rej:
         //                d_rhoprime,
         //                lut.d_exec_lut, d_sign_mem_pool_pitch, d_temp_mem_pool_pitch);
 
-        compute_y_opt_kernel<<<(exec_threshold + 3) / 4, dim3(32, 4), 0, stream>>>(
-                d_temp_y,
-                d_rhoprime,
-                lut.d_exec_lut, d_sign_mem_pool_pitch, d_temp_mem_pool_pitch, exec_threshold);
+        tuning_start(DILITHIUM_TUNE_COMPUTE_Y, stream);
+        if (selected_kernel_variants[DILITHIUM_TUNE_COMPUTE_Y] == 0) {
+            compute_y_kernel<<<exec_threshold, 32, 0, stream>>>(
+                    d_temp_y, d_rhoprime, lut.d_exec_lut,
+                    d_sign_mem_pool_pitch, d_temp_mem_pool_pitch);
+        } else {
+            compute_y_opt_kernel<<<(exec_threshold + 3) / 4, dim3(32, 4), 0, stream>>>(
+                    d_temp_y, d_rhoprime, lut.d_exec_lut,
+                    d_sign_mem_pool_pitch, d_temp_mem_pool_pitch, exec_threshold);
+        }
+        tuning_stop(DILITHIUM_TUNE_COMPUTE_Y, stream);
 
         //        compute_w_32t_kernel<<<exec_threshold, 32, 0, stream>>>(
         //                d_temp_z, d_temp_w0, d_temp_w1, d_temp_w1_packed,
         //                d_temp_y, d_mat,
         //                d_exec_lut, d_sign_mem_pool_pitch, d_temp_mem_pool_pitch);
 
-        compute_w_128t_kernel<<<exec_threshold, 128, 0, stream>>>(
-                d_temp_w0, d_temp_w1, d_temp_w1_packed,
-                d_temp_y, d_mat,
-                lut.d_exec_lut, d_sign_mem_pool_pitch, d_temp_mem_pool_pitch);
+        tuning_start(DILITHIUM_TUNE_COMPUTE_W, stream);
+        if (selected_kernel_variants[DILITHIUM_TUNE_COMPUTE_W] == 0) {
+            compute_w_32t_kernel<<<exec_threshold, 32, 0, stream>>>(
+                    d_temp_z, d_temp_w0, d_temp_w1, d_temp_w1_packed,
+                    d_temp_y, d_mat, lut.d_exec_lut,
+                    d_sign_mem_pool_pitch, d_temp_mem_pool_pitch);
+        } else {
+            compute_w_128t_kernel<<<exec_threshold, 128, 0, stream>>>(
+                    d_temp_w0, d_temp_w1, d_temp_w1_packed,
+                    d_temp_y, d_mat, lut.d_exec_lut,
+                    d_sign_mem_pool_pitch, d_temp_mem_pool_pitch);
+        }
+        tuning_stop(DILITHIUM_TUNE_COMPUTE_W, stream);
 
-        compute_cp_kernel<<<exec_threshold, 32, 0, stream>>>(
-                d_temp_cp, d_temp_mu,
-                d_temp_seed,
-                d_mu,
-                lut.d_exec_lut, d_sign_mem_pool_pitch, d_temp_mem_pool_pitch);
+        tuning_start(DILITHIUM_TUNE_COMPUTE_CP, stream);
+        if (selected_kernel_variants[DILITHIUM_TUNE_COMPUTE_CP] == 0) {
+            compute_cp_kernel<<<exec_threshold, 32, 0, stream>>>(
+                    d_temp_cp, d_temp_mu, d_temp_seed, d_mu,
+                    lut.d_exec_lut, d_sign_mem_pool_pitch, d_temp_mem_pool_pitch);
+        } else {
+            compute_cp_opt_kernel<<<(exec_threshold + 3) / 4, dim3(32, 4), 0, stream>>>(
+                    d_temp_cp, d_temp_mu, d_temp_seed, d_mu,
+                    lut.d_exec_lut, d_sign_mem_pool_pitch,
+                    d_temp_mem_pool_pitch, exec_threshold);
+        }
+        tuning_stop(DILITHIUM_TUNE_COMPUTE_CP, stream);
 
         //        rej_loop_32t_kernel<<<exec_threshold, 32, 0, stream>>>(
         //                d_temp_y, d_temp_z, d_temp_w0, d_temp_w1, d_temp_cp,
@@ -371,12 +577,21 @@ rej:
         //                d_s1, d_s2, d_t0,
         //                d_exec_lut, d_sign_mem_pool_pitch, d_temp_mem_pool_pitch);
 
-        rej_loop_128t_kernel<<<exec_threshold, 128, 0, stream>>>(
-                d_temp_y, d_temp_z, d_temp_w0, d_temp_w1, d_temp_cp,
-                d_temp_z_packed, d_temp_hint,
-                lut.d_done_lut,
-                d_s1, d_s2, d_t0,
-                lut.d_exec_lut, d_sign_mem_pool_pitch, d_temp_mem_pool_pitch);
+        tuning_start(DILITHIUM_TUNE_REJECTION, stream);
+        if (selected_kernel_variants[DILITHIUM_TUNE_REJECTION] == 0) {
+            rej_loop_32t_kernel<<<exec_threshold, 32, 0, stream>>>(
+                    d_temp_y, d_temp_z, d_temp_w0, d_temp_w1, d_temp_cp,
+                    d_temp_z_packed, d_temp_hint, lut.d_done_lut,
+                    d_s1, d_s2, d_t0, lut.d_exec_lut,
+                    d_sign_mem_pool_pitch, d_temp_mem_pool_pitch);
+        } else {
+            rej_loop_128t_kernel<<<exec_threshold, 128, 0, stream>>>(
+                    d_temp_y, d_temp_z, d_temp_w0, d_temp_w1, d_temp_cp,
+                    d_temp_z_packed, d_temp_hint, lut.d_done_lut,
+                    d_s1, d_s2, d_t0, lut.d_exec_lut,
+                    d_sign_mem_pool_pitch, d_temp_mem_pool_pitch);
+        }
+        tuning_stop(DILITHIUM_TUNE_REJECTION, stream);
 
         cudaMemcpyAsync(lut.h_done_lut, lut.d_done_lut, sizeof(uint8_t) * exec_threshold, cudaMemcpyDeviceToHost,
                         stream);

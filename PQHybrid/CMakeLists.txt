@@ -28,6 +28,10 @@ add_subdirectory(
 # final library.
 set(DILITHIUM_GLOBAL_SYMBOLS
     crypto_sign_keypair crypto_sign_signature crypto_sign_verify
+    crypto_sign_set_kernel_variant crypto_sign_get_kernel_variant
+    crypto_sign_kernel_variant_count crypto_sign_tuning_stage_name
+    crypto_sign_kernel_variant_name crypto_sign_tuning_begin
+    crypto_sign_tuning_end
     gpu_keypair gpu_verify ntt_inner invntt_inner c_zetas
     polyvec_matrix_expand_kernel polyvec_matrix_expand_opt_kernel
     unpack_fuse_ntt_kernel unpack_fuse_ntt_radix2_kernel
@@ -76,9 +80,23 @@ foreach(mode IN ITEMS 2 3 5)
         "PQC_DILITHIUM_KEYPAIR_ENTRY=pqcuda_dilithium${mode}_keypair"
         "PQC_DILITHIUM_SIGN_ENTRY=pqcuda_dilithium${mode}_sign"
         "PQC_DILITHIUM_VERIFY_ENTRY=pqcuda_dilithium${mode}_verify"
+        "PQC_DILITHIUM_KEYPAIR_BATCH_ENTRY=pqcuda_dilithium${mode}_keypair_batch"
+        "PQC_DILITHIUM_SIGN_BATCH_ENTRY=pqcuda_dilithium${mode}_sign_batch"
+        "PQC_DILITHIUM_VERIFY_BATCH_ENTRY=pqcuda_dilithium${mode}_verify_batch"
+        "PQC_DILITHIUM_TUNE_ENTRY=pqcuda_dilithium${mode}_tune_sign_kernels"
+        "PQC_DILITHIUM_TUNED_STAGE_COUNT_ENTRY=pqcuda_dilithium${mode}_tuned_stage_count"
+        "PQC_DILITHIUM_TUNED_STAGE_NAME_ENTRY=pqcuda_dilithium${mode}_tuned_stage_name"
+        "PQC_DILITHIUM_TUNED_VARIANT_NAME_ENTRY=pqcuda_dilithium${mode}_tuned_variant_name"
         "crypto_sign_keypair=dilithium${mode}_crypto_sign_keypair"
         "crypto_sign_signature=dilithium${mode}_crypto_sign_signature"
         "crypto_sign_verify=dilithium${mode}_crypto_sign_verify"
+        "crypto_sign_set_kernel_variant=dilithium${mode}_crypto_sign_set_kernel_variant"
+        "crypto_sign_get_kernel_variant=dilithium${mode}_crypto_sign_get_kernel_variant"
+        "crypto_sign_kernel_variant_count=dilithium${mode}_crypto_sign_kernel_variant_count"
+        "crypto_sign_tuning_stage_name=dilithium${mode}_crypto_sign_tuning_stage_name"
+        "crypto_sign_kernel_variant_name=dilithium${mode}_crypto_sign_kernel_variant_name"
+        "crypto_sign_tuning_begin=dilithium${mode}_crypto_sign_tuning_begin"
+        "crypto_sign_tuning_end=dilithium${mode}_crypto_sign_tuning_end"
     )
     target_include_directories(dilithium_wrapper${mode} PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -130,14 +148,18 @@ endforeach()
 set_target_properties(pqcuda PROPERTIES CUDA_RESOLVE_DEVICE_SYMBOLS ON)
 set_target_properties(pqcuda_static PROPERTIES CUDA_RESOLVE_DEVICE_SYMBOLS OFF)
 
-add_executable(pqcuda_test src/main.cpp)
+add_executable(pqcuda_test src/main.c)
 target_include_directories(pqcuda_test PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 target_link_libraries(pqcuda_test PRIVATE pqcuda)
 
-add_executable(pqcuda_test_static src/main.cpp)
+add_executable(pqcuda_test_static src/main.c)
 target_include_directories(pqcuda_test_static PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 target_link_libraries(pqcuda_test_static PRIVATE pqcuda_static)
+
+set_target_properties(pqcuda_test pqcuda_test_static PROPERTIES
+    LINKER_LANGUAGE CXX
+)

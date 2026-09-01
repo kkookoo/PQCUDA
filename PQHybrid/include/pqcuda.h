@@ -30,16 +30,46 @@
 
   int pqcuda_kyber1024_keypair(uint8_t *pk, uint8_t *sk);
 
+  int pqcuda_kyber1024_set_launch_config(
+      size_t block_count,
+      size_t threads_per_block
+  );
+
+  int pqcuda_kyber1024_tune_launch_profile(void);
+  size_t pqcuda_kyber1024_tuned_kernel_count(void);
+  const char *pqcuda_kyber1024_tuned_kernel_name(size_t kernel_index);
+  size_t pqcuda_kyber1024_tuned_kernel_threads(size_t kernel_index);
+
+  int pqcuda_kyber1024_keypair_batch(
+      uint8_t *public_keys,
+      uint8_t *secret_keys,
+      size_t batch_size
+  );
+
   int pqcuda_kyber1024_encapsulate(
       uint8_t *ciphertext,
       uint8_t *shared_secret,
       const uint8_t *public_key
   );
 
+  int pqcuda_kyber1024_encapsulate_batch(
+      uint8_t *ciphertexts,
+      uint8_t *shared_secrets,
+      const uint8_t *public_keys,
+      size_t batch_size
+  );
+
   int pqcuda_kyber1024_decapsulate(
       uint8_t *shared_secret,
       const uint8_t *ciphertext,
       const uint8_t *secret_key
+  );
+
+  int pqcuda_kyber1024_decapsulate_batch(
+      uint8_t *shared_secrets,
+      const uint8_t *ciphertexts,
+      const uint8_t *secret_keys,
+      size_t batch_size
   );
 
   int pqcuda_dilithium_sign_verify(
@@ -53,12 +83,32 @@
       size_t message_length
   );
 
+  int pqcuda_dilithium_tune_sign_kernels(pqcuda_dilithium_mode mode);
+  size_t pqcuda_dilithium_tuned_stage_count(pqcuda_dilithium_mode mode);
+  const char *pqcuda_dilithium_tuned_stage_name(
+      pqcuda_dilithium_mode mode,
+      size_t stage_index
+  );
+  const char *pqcuda_dilithium_tuned_variant_name(
+      pqcuda_dilithium_mode mode,
+      size_t stage_index
+  );
+
   int pqcuda_dilithium_keypair(
       pqcuda_dilithium_mode mode,
       uint8_t *public_key,
       size_t public_key_size,
       uint8_t *secret_key,
       size_t secret_key_size
+  );
+
+  int pqcuda_dilithium_keypair_batch(
+      pqcuda_dilithium_mode mode,
+      uint8_t *public_keys,
+      size_t public_keys_size,
+      uint8_t *secret_keys,
+      size_t secret_keys_size,
+      size_t batch_size
   );
 
   int pqcuda_dilithium_sign(
@@ -72,6 +122,18 @@
       size_t secret_key_size
   );
 
+  int pqcuda_dilithium_sign_batch(
+      pqcuda_dilithium_mode mode,
+      uint8_t *signatures,
+      size_t signatures_size,
+      size_t *signature_length,
+      const uint8_t *messages,
+      size_t message_length,
+      const uint8_t *secret_keys,
+      size_t secret_keys_size,
+      size_t batch_size
+  );
+
   int pqcuda_dilithium_verify(
       pqcuda_dilithium_mode mode,
       const uint8_t *signature,
@@ -80,6 +142,17 @@
       size_t message_length,
       const uint8_t *public_key,
       size_t public_key_size
+  );
+
+  int pqcuda_dilithium_verify_batch(
+      pqcuda_dilithium_mode mode,
+      const uint8_t *signatures,
+      size_t signature_length,
+      const uint8_t *messages,
+      size_t message_length,
+      const uint8_t *public_keys,
+      size_t public_keys_size,
+      size_t batch_size
   );
 
   size_t pqcuda_dilithium_public_key_bytes(pqcuda_dilithium_mode mode);
