@@ -15,7 +15,7 @@
 
 //#define ANALYSIS_MODE
 
-#define N_TESTS 16384
+#define N_TESTS 32768
 
 #define BLOCK_SIZE 32
 

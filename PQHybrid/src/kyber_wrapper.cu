@@ -1,35 +1,24 @@
 #include "pqcuda.h"
+#include "benchmark_policy.h"
+#include "pqcuda_random.h"
 
 #include "indcpa.h"
 #include "params.h"
 
 #include <cuda_runtime.h>
-#include <sys/random.h>
 
+#include <algorithm>
 #include <array>
-#include <cfloat>
+#include <cstdio>
+#include <cmath>
 #include <cstring>
 #include <vector>
 
-extern "C" {
-void shake256(uint8_t *out, size_t outlen, const uint8_t *in, size_t inlen);
-void sha3_256(uint8_t out[32], const uint8_t *in, size_t inlen);
-void sha3_512(uint8_t out[64], const uint8_t *in, size_t inlen);
-}
+#include "fips202_cpu/fips202.h"
 
 int SELECTED_GPU = GPU_V100;
 
 namespace {
-
-bool random_bytes(uint8_t *out, size_t size) {
-    size_t offset = 0;
-    while (offset < size) {
-        const ssize_t result = getrandom(out + offset, size - offset, 0);
-        if (result <= 0) return false;
-        offset += static_cast<size_t>(result);
-    }
-    return true;
-}
 
 void conditional_move(uint8_t *destination, const uint8_t *source,
                       size_t size, uint8_t condition) {
@@ -90,7 +79,7 @@ int cpa_keypair_batch(uint8_t *pk, uint8_t *sk, size_t batch) {
     KyberGpuContext context(batch);
     uint8_t *d_pk = nullptr, *d_sk = nullptr, *d_random = nullptr;
     std::vector<uint8_t> randomness(batch * 2 * KYBER_SYMBYTES);
-    if (!context.valid() || !random_bytes(randomness.data(), randomness.size()) ||
+    if (!context.valid() || !pqcuda_random_bytes(randomness.data(), randomness.size()) ||
         !device_alloc(&d_pk, batch * KYBER_PUBLICKEYBYTES) ||
         !device_alloc(&d_sk, batch * KYBER_INDCPA_SECRETKEYBYTES) ||
         !device_alloc(&d_random, randomness.size())) return -1;
@@ -163,56 +152,329 @@ extern "C" int pqcuda_kyber1024_set_launch_config(
     return 0;
 }
 
-extern "C" int pqcuda_kyber1024_tune_launch_profile(void) {
-    static const int candidate_block_sizes[] = {32, 64, 128, 192, 256};
-    float measurements[INDCPA_KERNEL_COUNT]
-                      [sizeof(candidate_block_sizes) /
-                       sizeof(candidate_block_sizes[0])] = {};
-    uint8_t pk[PQCUDA_KYBER1024_PUBLIC_KEY_BYTES];
-    uint8_t sk[PQCUDA_KYBER1024_SECRET_KEY_BYTES];
-    uint8_t ct[PQCUDA_KYBER1024_CIPHERTEXT_BYTES];
-    uint8_t encapsulated[PQCUDA_KYBER1024_SHARED_SECRET_BYTES];
-    uint8_t decapsulated[PQCUDA_KYBER1024_SHARED_SECRET_BYTES];
+namespace {
 
-    // Disable the legacy all-kernel override while collecting a per-kernel
-    // profile. Each candidate run executes a complete, valid KEM pipeline.
-    indcpa_set_launch_config(0, 0);
-    for (size_t candidate = 0;
-         candidate < sizeof(candidate_block_sizes) /
-                         sizeof(candidate_block_sizes[0]);
-         ++candidate) {
-        if (indcpa_tuning_begin(candidate_block_sizes[candidate]) != 0)
-            return -1;
-        const int result =
-            pqcuda_kyber1024_keypair(pk, sk) != 0 ||
-            pqcuda_kyber1024_encapsulate(ct, encapsulated, pk) != 0 ||
-            pqcuda_kyber1024_decapsulate(decapsulated, ct, sk) != 0 ||
-            std::memcmp(encapsulated, decapsulated,
-                        sizeof(encapsulated)) != 0;
-        indcpa_tuning_end();
-        if (result) return -1;
-        for (int kernel = 0; kernel < INDCPA_KERNEL_COUNT; ++kernel) {
-            measurements[kernel][candidate] =
-                indcpa_tuning_average_ms(kernel);
-            if (measurements[kernel][candidate] < 0.0f) return -1;
+constexpr double KYBER_PRACTICAL_THROUGHPUT_RATIO = PQCUDA_BENCHMARK_THROUGHPUT_RATIO;
+constexpr std::array<int, 8> KYBER_TUNING_BLOCK_SIZES = {
+    16, 32, 64, 128, 192, 256, 512, 1024};
+
+struct KyberKernelMeasurement {
+    int block_size;
+    int grid_size;
+    int operation_count;
+    double cumulative_latency_ms;
+    double latency_per_operation_us;
+    double throughput;
+};
+
+using KyberKernelMeasurementLists =
+    std::array<std::vector<KyberKernelMeasurement>, INDCPA_KERNEL_COUNT>;
+
+KyberKernelMeasurementLists last_tuning_measurements;
+std::array<KyberKernelMeasurement, INDCPA_KERNEL_COUNT>
+    last_practical_best{};
+size_t last_tuned_batch = 0;
+bool tuning_results_available = false;
+
+struct KyberTuningWorkspace {
+    size_t capacity;
+    KyberGpuContext gpu;
+    uint8_t *d_public_key{};
+    uint8_t *d_secret_key{};
+    uint8_t *d_ciphertext{};
+    uint8_t *d_message{};
+    uint8_t *d_decrypted{};
+    uint8_t *d_coins{};
+    uint8_t *d_randomness{};
+    std::vector<uint8_t> message;
+    std::vector<uint8_t> decrypted;
+    std::vector<uint8_t> coins;
+    std::vector<uint8_t> randomness;
+    bool initialized{};
+
+    explicit KyberTuningWorkspace(size_t requested_capacity)
+        : capacity(requested_capacity),
+          gpu(requested_capacity),
+          message(requested_capacity * KYBER_SYMBYTES),
+          decrypted(requested_capacity * KYBER_SYMBYTES),
+          coins(requested_capacity * KYBER_SYMBYTES),
+          randomness(requested_capacity * 2 * KYBER_SYMBYTES) {
+        if (!gpu.valid() ||
+            !device_alloc(&d_public_key,
+                          requested_capacity * KYBER_PUBLICKEYBYTES) ||
+            !device_alloc(&d_secret_key,
+                          requested_capacity *
+                              KYBER_INDCPA_SECRETKEYBYTES) ||
+            !device_alloc(&d_ciphertext,
+                          requested_capacity * KYBER_CIPHERTEXTBYTES) ||
+            !device_alloc(&d_message,
+                          requested_capacity * KYBER_SYMBYTES) ||
+            !device_alloc(&d_decrypted,
+                          requested_capacity * KYBER_SYMBYTES) ||
+            !device_alloc(&d_coins,
+                          requested_capacity * KYBER_SYMBYTES) ||
+            !device_alloc(&d_randomness,
+                          requested_capacity * 2 * KYBER_SYMBYTES) ||
+            !pqcuda_random_bytes(message.data(), message.size()) ||
+            !pqcuda_random_bytes(coins.data(), coins.size()) ||
+            !pqcuda_random_bytes(randomness.data(), randomness.size()))
+            return;
+
+        if (cudaMemcpyAsync(d_message, message.data(), message.size(),
+                            cudaMemcpyHostToDevice, gpu.stream) !=
+                cudaSuccess ||
+            cudaMemcpyAsync(d_coins, coins.data(), coins.size(),
+                            cudaMemcpyHostToDevice, gpu.stream) !=
+                cudaSuccess ||
+            cudaMemcpyAsync(d_randomness, randomness.data(),
+                            randomness.size(), cudaMemcpyHostToDevice,
+                            gpu.stream) != cudaSuccess)
+            return;
+        initialized = cudaStreamSynchronize(gpu.stream) == cudaSuccess;
+    }
+
+    ~KyberTuningWorkspace() {
+        cudaFree(d_public_key);
+        cudaFree(d_secret_key);
+        cudaFree(d_ciphertext);
+        cudaFree(d_message);
+        cudaFree(d_decrypted);
+        cudaFree(d_coins);
+        cudaFree(d_randomness);
+    }
+
+    bool run(int operation_count) {
+        if (!initialized || operation_count <= 0 ||
+            static_cast<size_t>(operation_count) > capacity)
+            return false;
+        indcpa_keypair(operation_count, &gpu.set, d_public_key,
+                       d_secret_key, d_randomness, gpu.stream);
+        indcpa_enc(operation_count, &gpu.set, d_ciphertext, d_message,
+                   d_public_key, d_coins, gpu.stream);
+        indcpa_dec(operation_count, &gpu.set, d_decrypted, d_ciphertext,
+                   d_secret_key, gpu.stream);
+        return cudaStreamSynchronize(gpu.stream) == cudaSuccess;
+    }
+
+    bool verify(int operation_count) {
+        const size_t bytes =
+            static_cast<size_t>(operation_count) * KYBER_SYMBYTES;
+        if (cudaMemcpyAsync(decrypted.data(), d_decrypted, bytes,
+                            cudaMemcpyDeviceToHost, gpu.stream) !=
+                cudaSuccess ||
+            cudaStreamSynchronize(gpu.stream) != cudaSuccess)
+            return false;
+        return std::memcmp(message.data(), decrypted.data(), bytes) == 0;
+    }
+};
+
+bool benchmark_kyber_launch_config(KyberTuningWorkspace &workspace, int operation_count, int block_size, KyberKernelMeasurementLists &measurements) 
+{
+    const int grid_size = (operation_count + block_size - 1) / block_size;
+    std::array<std::array<float, PQCUDA_BENCHMARK_SAMPLE_RUNS>, INDCPA_KERNEL_COUNT> samples{};
+    std::array<bool, INDCPA_KERNEL_COUNT> eligible{};
+
+    bool has_eligible_kernel = false;
+    for (int kernel = 0; kernel < INDCPA_KERNEL_COUNT; ++kernel) 
+    {
+        const int maximum = indcpa_get_kernel_max_block_size(kernel);
+        if (maximum < 0) return false;
+        eligible[kernel] = block_size <= maximum;
+        has_eligible_kernel = has_eligible_kernel || eligible[kernel];
+    }
+    if (!has_eligible_kernel) return true;
+
+    // Warm up this candidate at the requested batch without timing it.
+    for (int kernel = 0; kernel < INDCPA_KERNEL_COUNT; ++kernel) {
+        if (eligible[kernel] &&
+            indcpa_set_kernel_block_size(kernel, block_size) != 0)
+            return false;
+    }
+    for (int run = 0; run < PQCUDA_BENCHMARK_WARMUP_RUNS; ++run) {
+        if (!workspace.run(operation_count) ||
+            !workspace.verify(operation_count)) return false;
+    }
+
+    for (int trial = 0; trial < PQCUDA_BENCHMARK_SAMPLE_RUNS; ++trial) 
+    {
+        if (indcpa_tuning_begin(block_size) != 0) return false;
+        const bool pipeline_ok = workspace.run(operation_count);
+        for (int kernel = 0; kernel < INDCPA_KERNEL_COUNT; ++kernel) 
+        {
+            if (!eligible[kernel]) continue;
+            samples[kernel][trial] = indcpa_tuning_total_ms(kernel);
         }
+        indcpa_tuning_end();
+        if (!pipeline_ok) return false;
+        for (int kernel = 0; kernel < INDCPA_KERNEL_COUNT; ++kernel) 
+        {
+            if (eligible[kernel] &&
+                (!std::isfinite(samples[kernel][trial]) ||
+                 samples[kernel][trial] < 0.0f))
+                return false;
+        }
+        if (!workspace.verify(operation_count)) return false;
+    }
+
+    for (int kernel = 0; kernel < INDCPA_KERNEL_COUNT; ++kernel) 
+    {
+        if (!eligible[kernel]) continue;
+        std::sort(samples[kernel].begin(), samples[kernel].end());
+        const double cumulative_latency_ms =
+            (samples[kernel][(PQCUDA_BENCHMARK_SAMPLE_RUNS - 1) / 2] +
+             samples[kernel][PQCUDA_BENCHMARK_SAMPLE_RUNS / 2]) / 2.0;
+        if (cumulative_latency_ms <= 0.0) return false;
+        const double latency_per_operation_us = cumulative_latency_ms * 1000.0 / operation_count;
+        const double throughput = static_cast<double>(operation_count) * 1000.0 / cumulative_latency_ms;
+        measurements[kernel].push_back({block_size, grid_size, operation_count, cumulative_latency_ms, latency_per_operation_us, throughput});
+    }
+    return true;
+}
+
+} // namespace
+
+extern "C" size_t pqcuda_kyber1024_max_batch_size(void) 
+{
+    return N_TESTS;
+}
+
+extern "C" int pqcuda_kyber1024_tune_launch_profile(size_t batch_size) 
+{
+    if (!valid_batch(batch_size)) return -1;
+
+    int device = 0;
+    cudaDeviceProp properties{};
+    if (cudaGetDevice(&device) != cudaSuccess || cudaGetDeviceProperties(&properties, device) != cudaSuccess)
+        return -1;
+
+    KyberTuningWorkspace workspace(batch_size);
+    if (!workspace.initialized) return -1;
+
+    KyberKernelMeasurementLists measurements;
+    tuning_results_available = false;
+    last_tuned_batch = 0;
+    for (auto &kernel_measurements : last_tuning_measurements)
+        kernel_measurements.clear();
+
+    // Disable the legacy all-kernel override while collecting per-kernel data.
+    indcpa_set_launch_config(0, 0);
+    for (int block_size : KYBER_TUNING_BLOCK_SIZES) 
+    {
+        if (block_size > properties.maxThreadsPerBlock) continue;
+        if (!benchmark_kyber_launch_config(workspace, static_cast<int>(batch_size), block_size, measurements))
+            return -1;
     }
 
     for (int kernel = 0; kernel < INDCPA_KERNEL_COUNT; ++kernel) {
-        float best_time = FLT_MAX;
-        int best_block_size = 0;
-        for (size_t candidate = 0;
-             candidate < sizeof(candidate_block_sizes) /
-                             sizeof(candidate_block_sizes[0]);
-             ++candidate) {
-            if (measurements[kernel][candidate] < best_time) {
-                best_time = measurements[kernel][candidate];
-                best_block_size = candidate_block_sizes[candidate];
-            }
+        if (measurements[kernel].empty()) return -1;
+        std::sort(measurements[kernel].begin(), measurements[kernel].end(),
+                  [](const KyberKernelMeasurement &left,
+                     const KyberKernelMeasurement &right) {
+                      if (left.block_size != right.block_size)
+                          return left.block_size < right.block_size;
+                      return left.grid_size < right.grid_size;
+                  });
+        const auto best_it = std::min_element(
+            measurements[kernel].begin(), measurements[kernel].end(),
+            [](const KyberKernelMeasurement &left,
+               const KyberKernelMeasurement &right) {
+                return left.cumulative_latency_ms < right.cumulative_latency_ms;
+            });
+        const KyberKernelMeasurement *practical_best = &*best_it;
+
+        if (indcpa_set_kernel_block_size(kernel, practical_best->block_size) != 0)
+            return -1;
+        last_practical_best[kernel] = *practical_best;
+    }
+
+    last_tuning_measurements = measurements;
+    last_tuned_batch = batch_size;
+    tuning_results_available = true;
+    return 0;
+}
+
+extern "C" void pqcuda_kyber1024_print_tuned_kernel_details(void) 
+{
+    if (!tuning_results_available) 
+    {
+        std::printf("No Kyber kernel tuning results are available.\n");
+        return;
+    }
+
+    std::printf("\nKyber1024 per-kernel tuning details (batch=%zu)\n", last_tuned_batch);
+
+    for (int kernel = 0; kernel < INDCPA_KERNEL_COUNT; ++kernel) 
+    {
+        const auto maximum_it = std::max_element(
+            last_tuning_measurements[kernel].begin(),
+            last_tuning_measurements[kernel].end(),
+            [](const KyberKernelMeasurement &left,
+               const KyberKernelMeasurement &right) {
+                return left.throughput < right.throughput;
+            });
+        const double threshold = maximum_it->throughput * KYBER_PRACTICAL_THROUGHPUT_RATIO;
+
+        std::printf("\n%s: configurations within 95%% of maximum "
+                    "throughput (>= %.3f (ops/s))\n",
+                    indcpa_get_kernel_name(kernel), threshold);
+        std::printf("+--------+--------+-------------+---------------------+"
+                    "-----------------+--------------------+\n"
+                    "| Grid   | Block  | Batch       | Median total (ms)   |"
+                    " Latency/op (us) | Throughput (ops/s) |\n"
+                    "+--------+--------+-------------+---------------------+"
+                    "-----------------+--------------------+\n");
+        for (const KyberKernelMeasurement &measurement :
+             last_tuning_measurements[kernel]) {
+            if (measurement.throughput < threshold) continue;
+            std::printf("| %6d | %6d | %11d | %19.6f | %15.6f |"
+                        " %18.3f |\n",
+                        measurement.grid_size, measurement.block_size,
+                        measurement.operation_count,
+                        measurement.cumulative_latency_ms,
+                        measurement.latency_per_operation_us,
+                        measurement.throughput);
         }
-        if (indcpa_set_kernel_block_size(kernel, best_block_size) != 0)
+        std::printf("+--------+--------+-------------+---------------------+"
+                    "-----------------+--------------------+\n");
+        const KyberKernelMeasurement &practical_best =
+            last_practical_best[kernel];
+        std::printf("BEST MEDIAN: grid=%d, block=%d, batch=%d, "
+                    "median cumulative time (ms)=%.6f, throughput (ops/s)=%.3f\n",
+                    practical_best.grid_size, practical_best.block_size,
+                    practical_best.operation_count,
+                    practical_best.cumulative_latency_ms,
+                    practical_best.throughput);
+    }
+}
+
+extern "C" int pqcuda_kyber1024_export_tuning_csv(const char *path) {
+    if (!path || !tuning_results_available) return -1;
+    FILE *file = std::fopen(path, "w");
+    if (!file) return -1;
+    std::fprintf(file, "kernel,batch,block,grid,median_total_ms,throughput_ops_s\n");
+    for (int kernel = 0; kernel < INDCPA_KERNEL_COUNT; ++kernel) {
+        for (const auto &m : last_tuning_measurements[kernel]) {
+            std::fprintf(file, "%s,%d,%d,%d,%.9f,%.6f\n",
+                         indcpa_get_kernel_name(kernel), m.operation_count,
+                         m.block_size, m.grid_size, m.cumulative_latency_ms,
+                         m.throughput);
+        }
+    }
+    const bool failed = std::ferror(file) != 0;
+    return std::fclose(file) == 0 && !failed ? 0 : -1;
+}
+
+extern "C" int pqcuda_kyber1024_apply_launch_profile(const size_t *blocks, size_t count) {
+    if (!blocks || count != INDCPA_KERNEL_COUNT) return -1;
+    for (size_t i = 0; i < count; ++i) {
+        const int maximum = indcpa_get_kernel_max_block_size(static_cast<int>(i));
+        if (maximum <= 0 || blocks[i] == 0 || blocks[i] > static_cast<size_t>(maximum))
             return -1;
     }
+    indcpa_set_launch_config(0, 0);
+    for (size_t i = 0; i < count; ++i)
+        if (indcpa_set_kernel_block_size(static_cast<int>(i), static_cast<int>(blocks[i])) != 0)
+            return -1;
     return 0;
 }
 
@@ -249,12 +511,12 @@ extern "C" int pqcuda_kyber1024_decapsulate(uint8_t *ss, const uint8_t *ct,
     return pqcuda_kyber1024_decapsulate_batch(ss, ct, sk, 1);
 }
 
-extern "C" int pqcuda_kyber1024_keypair_batch(uint8_t *pk, uint8_t *sk,
-                                                size_t batch) {
+extern "C" int pqcuda_kyber1024_keypair_batch(uint8_t *pk, uint8_t *sk, size_t batch) 
+{
     if (!pk || !sk || !valid_batch(batch)) return -1;
     std::vector<uint8_t> cpa_sk(batch * KYBER_INDCPA_SECRETKEYBYTES);
     std::vector<uint8_t> fallback(batch * KYBER_SYMBYTES);
-    if (!random_bytes(fallback.data(), fallback.size()) ||
+    if (!pqcuda_random_bytes(fallback.data(), fallback.size()) ||
         cpa_keypair_batch(pk, cpa_sk.data(), batch) != 0) return -1;
     for (size_t i = 0; i < batch; ++i) {
         uint8_t *item_sk = sk + i * KYBER_SECRETKEYBYTES;
@@ -276,8 +538,9 @@ extern "C" int pqcuda_kyber1024_encapsulate_batch(
     if (!ct || !ss || !pk || !valid_batch(batch)) return -1;
     std::vector<uint8_t> messages(batch * KYBER_SYMBYTES);
     std::vector<uint8_t> coins(batch * KYBER_SYMBYTES);
+    std::vector<uint8_t> prekeys(batch * KYBER_SYMBYTES);
     std::vector<uint8_t> random(batch * KYBER_SYMBYTES);
-    if (!random_bytes(random.data(), random.size())) return -1;
+    if (!pqcuda_random_bytes(random.data(), random.size())) return -1;
     for (size_t i = 0; i < batch; ++i) {
         std::array<uint8_t, 64> buffer{}, kr{};
         sha3_256(buffer.data(), random.data() + i * KYBER_SYMBYTES,
@@ -285,6 +548,7 @@ extern "C" int pqcuda_kyber1024_encapsulate_batch(
         sha3_256(buffer.data() + 32, pk + i * KYBER_PUBLICKEYBYTES,
                  KYBER_PUBLICKEYBYTES);
         sha3_512(kr.data(), buffer.data(), buffer.size());
+        std::memcpy(prekeys.data() + i * KYBER_SYMBYTES, kr.data(), KYBER_SYMBYTES);
         std::memcpy(messages.data() + i * KYBER_SYMBYTES, buffer.data(),
                     KYBER_SYMBYTES);
         std::memcpy(coins.data() + i * KYBER_SYMBYTES, kr.data() + 32,
@@ -294,7 +558,7 @@ extern "C" int pqcuda_kyber1024_encapsulate_batch(
         return -1;
     for (size_t i = 0; i < batch; ++i) {
         std::array<uint8_t, 64> kr{};
-        std::memcpy(kr.data(), messages.data() + i * KYBER_SYMBYTES,
+        std::memcpy(kr.data(), prekeys.data() + i * KYBER_SYMBYTES,
                     KYBER_SYMBYTES);
         std::memcpy(kr.data() + 32, coins.data() + i * KYBER_SYMBYTES,
                     KYBER_SYMBYTES);
@@ -312,6 +576,7 @@ extern "C" int pqcuda_kyber1024_decapsulate_batch(
     std::vector<uint8_t> public_keys(batch * KYBER_PUBLICKEYBYTES);
     std::vector<uint8_t> messages(batch * KYBER_SYMBYTES);
     std::vector<uint8_t> coins(batch * KYBER_SYMBYTES);
+    std::vector<uint8_t> prekeys(batch * KYBER_SYMBYTES);
     std::vector<uint8_t> comparisons(batch * KYBER_CIPHERTEXTBYTES);
     for (size_t i = 0; i < batch; ++i) {
         const uint8_t *item_sk = sk + i * KYBER_SECRETKEYBYTES;
@@ -330,6 +595,7 @@ extern "C" int pqcuda_kyber1024_decapsulate_batch(
                     sk + i * KYBER_SECRETKEYBYTES + KYBER_SECRETKEYBYTES - 64,
                     KYBER_SYMBYTES);
         sha3_512(kr.data(), buffer.data(), buffer.size());
+        std::memcpy(prekeys.data() + i * KYBER_SYMBYTES, kr.data(), KYBER_SYMBYTES);
         std::memcpy(coins.data() + i * KYBER_SYMBYTES, kr.data() + 32,
                     KYBER_SYMBYTES);
     }
@@ -337,7 +603,7 @@ extern "C" int pqcuda_kyber1024_decapsulate_batch(
                           public_keys.data(), coins.data(), batch) != 0) return -1;
     for (size_t i = 0; i < batch; ++i) {
         std::array<uint8_t, 64> kr{};
-        std::memcpy(kr.data(), messages.data() + i * KYBER_SYMBYTES,
+        std::memcpy(kr.data(), prekeys.data() + i * KYBER_SYMBYTES,
                     KYBER_SYMBYTES);
         std::memcpy(kr.data() + 32, coins.data() + i * KYBER_SYMBYTES,
                     KYBER_SYMBYTES);

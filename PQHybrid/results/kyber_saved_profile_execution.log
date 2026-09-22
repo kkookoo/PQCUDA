@@ -1,0 +1,21 @@
+PQCUDA 메뉴를 선택하세요.
+  1. Run algorithm
+  2. Benchmark
+  3. KAT test
+선택: 
+알고리즘을 선택하세요.
+  1. ML-KEM (Kyber1024)
+  2. ML-DSA (cuDilithium)
+선택: 
+보안 레벨을 선택하세요.
+  1. Kyber1024
+선택: 
+작업을 선택하세요.
+  1. keypair
+  2. encaps
+  3. decaps
+선택: 실행 설정: 1. Batch 직접 입력  2. 저장된 benchmark 최적 설정 사용
+선택: Applied benchmark profile: pqcuda_kyber_1024_op1.profile, batch=20000
+Public keys (31360000 bytes): kyber1024_public_key.hex
+Private keys (63360000 bytes): kyber1024_private_key.hex
+Batch 20000 완료. 각 파일은 항목당 한 줄의 hex 형식입니다.

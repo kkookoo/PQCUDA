@@ -275,10 +275,10 @@ int bench_cudilithium(size_t batch_size, size_t exec_threshold, size_t n_streams
 }
 
 int main() {
-    std::vector<size_t> batch_sizes = {10000};
-    std::vector<size_t> exec_thresholds = {2048};
-    std::vector<size_t> v_n_streams = {10};
-    //    for (size_t i = 1; i <= 16; i += 1)
+    std::vector<size_t> batch_sizes = {10000};  // 한 번의 Benchmark에서 처리할 배치 크기(처리 개수)
+    std::vector<size_t> exec_thresholds = {2048};  // 서명의 rejection sampling 과정에서, 한 라운드에 동시에 실행할 서명 후보 개수
+    std::vector<size_t> v_n_streams = {10};  // 한 번의 Benchmark에서 동시에 실행할 CUDA Stream 개수    ex) batch_size = 10000, n_streams = 10이면, 1000개씩 10개의 Stream에서 동시에 실행
+    //    for (size_t i = 1; i <= 16; i += 1)                                                             exec_threshold = 2048, n_streams = 10이면, stream 0~8 : threshold 204, stream 9 : threshold 212 실행
     //        v_n_streams.push_back(i);
     //    std::cout << "threshold,batch,function,trials,min,mean,median,stddev." << std::endl;
     std::cout << "n_streams,function,trials,min,mean,median,stddev." << std::endl;

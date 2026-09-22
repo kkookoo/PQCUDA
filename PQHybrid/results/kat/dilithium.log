@@ -1,0 +1,12 @@
+Internal ctest changing into directory: /home/junekoo/PQCUDA/PQHybrid/build-standalone-cuda126/dilithium
+Test project /home/junekoo/PQCUDA/PQHybrid/build-standalone-cuda126/dilithium
+    Start 1: test_cuDilithium2
+1/3 Test #1: test_cuDilithium2 ................   Passed    0.50 sec
+    Start 2: test_cuDilithium3
+2/3 Test #2: test_cuDilithium3 ................   Passed    0.63 sec
+    Start 3: test_cuDilithium5
+3/3 Test #3: test_cuDilithium5 ................   Passed    0.78 sec
+
+100% tests passed, 0 tests failed out of 3
+
+Total Test time (real) =   1.91 sec

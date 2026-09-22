@@ -1,0 +1,10 @@
+mode,operation,batch,message_bytes,warmups,samples,median_total_ms,throughput_ops_s,timing_scope,sign_tuned
+2,Gen,10000,32,3,7,30.005968,333267.0354110889,full synchronous PQCUDA batch API,yes
+2,Sign,10000,32,3,7,91.235347,109606.64182052159,full synchronous PQCUDA batch API,yes
+2,Verify,10000,32,3,7,39.815843,251156.30479053274,full synchronous PQCUDA batch API,yes
+3,Gen,10000,32,3,7,57.545119,173776.68469153743,full synchronous PQCUDA batch API,yes
+3,Sign,10000,32,3,7,130.838946,76429.84222755815,full synchronous PQCUDA batch API,yes
+3,Verify,10000,32,3,7,62.201354,160768.20449921396,full synchronous PQCUDA batch API,yes
+5,Gen,10000,32,3,7,75.818736,131893.5203562349,full synchronous PQCUDA batch API,yes
+5,Sign,10000,32,3,7,175.182663,57083.27427355069,full synchronous PQCUDA batch API,yes
+5,Verify,10000,32,3,7,103.090867,97001.80327322302,full synchronous PQCUDA batch API,yes

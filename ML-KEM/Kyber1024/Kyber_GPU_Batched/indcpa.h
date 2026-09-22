@@ -40,9 +40,11 @@ enum indcpa_kernel_id {
 int indcpa_tuning_begin(int candidate_block_size);
 void indcpa_tuning_end(void);
 float indcpa_tuning_average_ms(int kernel_id);
+float indcpa_tuning_total_ms(int kernel_id);
 int indcpa_set_kernel_block_size(int kernel_id, int block_size);
 int indcpa_get_kernel_block_size(int kernel_id);
 const char *indcpa_get_kernel_name(int kernel_id);
+int indcpa_get_kernel_max_block_size(int kernel_id);
 
 #define HANDLE_ERROR( err ) (HandleError( err, __FILE__, __LINE__ ))
 

@@ -792,6 +792,7 @@ __global__ void compute_cp_opt_kernel(int32_t *g_cp, uint8_t *g_mu,
     }
 }
 
+// 32 threads per block
 __global__ void rej_loop_32t_kernel(
         const int32_t *g_y, int32_t *g_z, const int32_t *g_w0, const int32_t *g_w1, const int32_t *g_cp,
         uint8_t *g_z_packed, uint8_t *g_hint,
@@ -1017,6 +1018,7 @@ __global__ void rej_loop_128t_kernel(
                                      : blockIdx.x * temp_mem_pool_pitch;
 
     // poly_ntt(&cp);
+    // 각 thread가 계수 2개를 담당하여 연산
     int32_t cp_regs0 = g_cp[temp_idx_offset / sizeof(int32_t) + threadIdx.x];
     int32_t cp_regs1 = g_cp[temp_idx_offset / sizeof(int32_t) + 128 + threadIdx.x];
     ntt_radix2_inner(cp_regs0, cp_regs1, s_ntt, s_zetas);

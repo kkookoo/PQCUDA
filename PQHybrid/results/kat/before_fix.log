@@ -1,0 +1,43 @@
+Internal ctest changing into directory: /home/junekoo/PQCUDA/PQHybrid/build-cuda126
+Test project /home/junekoo/PQCUDA/PQHybrid/build-cuda126
+    Start 1: kyber_kat
+1/5 Test #1: kyber_kat ........................***Failed    0.52 sec
+FAIL batch=1 item=0 ss
+FAIL batch=1 item=0 decaps
+FAIL batch=4 item=1 pk
+FAIL batch=4 item=2 pk
+FAIL batch=4 item=3 pk
+FAIL batch=4 item=1 sk
+FAIL batch=4 item=2 sk
+FAIL batch=4 item=3 sk
+FAIL batch=4 item=1 ct
+FAIL batch=4 item=2 ct
+FAIL batch=4 item=3 ct
+FAIL batch=4 item=0 ss
+FAIL batch=4 item=1 ss
+FAIL batch=4 item=2 ss
+FAIL batch=4 item=3 ss
+FAIL batch=4 item=0 decaps
+FAIL batch=4 item=1 decaps
+FAIL batch=4 item=2 decaps
+FAIL batch=4 item=3 decaps
+FAIL batch=4 item=1 rejected ciphertext secret
+FAIL batch=4 item=2 rejected ciphertext secret
+FAIL batch=4 item=3 rejected ciphertext secret
+
+    Start 2: common_crypto_roundtrip
+2/5 Test #2: common_crypto_roundtrip ..........   Passed    0.36 sec
+    Start 3: fips202_cpu
+3/5 Test #3: fips202_cpu ......................   Passed    0.01 sec
+    Start 4: fips202_cuda
+4/5 Test #4: fips202_cuda .....................   Passed    0.13 sec
+    Start 7: platform
+5/5 Test #7: platform .........................   Passed    0.00 sec
+
+80% tests passed, 1 tests failed out of 5
+
+Total Test time (real) =   1.02 sec
+
+The following tests FAILED:
+	  1 - kyber_kat (Failed)
+Errors while running CTest

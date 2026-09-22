@@ -254,6 +254,7 @@ __global__ void poly_frommont_n(int COUNT, poly* r)
 *
 * Arguments:   - poly *r:       pointer to input/output polynomial
 **************************************************/
+// Thread가 하나의 다항식을 협력해서 처리하지 않고, 반복문을 통해 Thread 하나가 256개 계수를 모두 순회하도록 구현 KYBER_N = 256
 __global__ void poly_reduce_n(int COUNT, poly* r)
 {
 	int X = threadIdx.x + blockIdx.x * blockDim.x;

@@ -1,0 +1,196 @@
+PQCUDA 메뉴를 선택하세요.
+  1. Run algorithm
+  2. Benchmark
+  3. KAT test
+선택: 
+Benchmark 알고리즘을 선택하세요.
+  1. ML-KEM (Kyber1024)
+  2. ML-DSA (cuDilithium)
+선택: 
+ML-KEM Benchmark 작업을 선택하세요.
+  1. keypair
+  2. encap
+  3. decap
+선택: GPU: NVIDIA GeForce GTX 1070, SMs=15, max threads/block=1024
+Automatic search: kernel block sizes 16,32,64,128,192,256,512,1024;
+grid = ceil(work items / block). Unsupported block sizes are excluded.
+Recommendation: lowest total latency at >=95% of measured peak throughput.
+API timing includes allocation, transfers, CPU work and GPU execution; excludes tuning.
+
+Tuning Kyber1024 kernels for batch=1...
+Work items=1: total=30.455369 ms, throughput=32.835 ops/s
+
+Tuning Kyber1024 kernels for batch=32...
+Work items=32: total=30.996098 ms, throughput=1032.388 ops/s
+
+Tuning Kyber1024 kernels for batch=128...
+Work items=128: total=31.746382 ms, throughput=4031.956 ops/s
+
+Tuning Kyber1024 kernels for batch=512...
+Work items=512: total=33.355054 ms, throughput=15349.998 ops/s
+
+Tuning Kyber1024 kernels for batch=1000...
+Work items=1000: total=35.507744 ms, throughput=28162.871 ops/s
+
+Tuning Kyber1024 kernels for batch=2000...
+Work items=2000: total=40.930179 ms, throughput=48863.700 ops/s
+
+Tuning Kyber1024 kernels for batch=3000...
+Work items=3000: total=46.093112 ms, throughput=65085.647 ops/s
+
+Tuning Kyber1024 kernels for batch=4000...
+Work items=4000: total=52.846892 ms, throughput=75690.355 ops/s
+
+Tuning Kyber1024 kernels for batch=5000...
+Work items=5000: total=57.342898 ms, throughput=87194.756 ops/s
+
+Tuning Kyber1024 kernels for batch=6000...
+Work items=6000: total=64.974226 ms, throughput=92344.309 ops/s
+
+Tuning Kyber1024 kernels for batch=7000...
+Work items=7000: total=68.917128 ms, throughput=101571.267 ops/s
+
+Tuning Kyber1024 kernels for batch=8000...
+Work items=8000: total=73.610796 ms, throughput=108679.711 ops/s
+
+Tuning Kyber1024 kernels for batch=9000...
+Work items=9000: total=78.869910 ms, throughput=114111.960 ops/s
+
+Tuning Kyber1024 kernels for batch=10000...
+Work items=10000: total=85.979411 ms, throughput=116306.914 ops/s
+
+Tuning Kyber1024 kernels for batch=11000...
+Work items=11000: total=90.733977 ms, throughput=121233.526 ops/s
+
+Tuning Kyber1024 kernels for batch=12000...
+Work items=12000: total=97.391057 ms, throughput=123214.599 ops/s
+
+Tuning Kyber1024 kernels for batch=13000...
+Work items=13000: total=101.535003 ms, throughput=128034.664 ops/s
+
+Tuning Kyber1024 kernels for batch=14000...
+Work items=14000: total=109.134405 ms, throughput=128282.186 ops/s
+
+Tuning Kyber1024 kernels for batch=15000...
+Work items=15000: total=112.649637 ms, throughput=133156.221 ops/s
+
+Tuning Kyber1024 kernels for batch=16000...
+Work items=16000: total=118.379414 ms, throughput=135158.635 ops/s
+
+Tuning Kyber1024 kernels for batch=17000...
+Work items=17000: total=123.054781 ms, throughput=138149.854 ops/s
+
+Tuning Kyber1024 kernels for batch=18000...
+Work items=18000: total=131.923039 ms, throughput=136443.188 ops/s
+
+Tuning Kyber1024 kernels for batch=19000...
+Work items=19000: total=135.754796 ms, throughput=139958.223 ops/s
+
+Tuning Kyber1024 kernels for batch=20000...
+Work items=20000: total=138.349740 ms, throughput=144561.168 ops/s
+
+Tuning Kyber1024 kernels for batch=21000...
+Work items=21000: total=146.764037 ms, throughput=143086.824 ops/s
+
+Tuning Kyber1024 kernels for batch=22000...
+Work items=22000: total=158.852336 ms, throughput=138493.399 ops/s
+
+Tuning Kyber1024 kernels for batch=23000...
+Work items=23000: total=162.237358 ms, throughput=141767.595 ops/s
+
+Tuning Kyber1024 kernels for batch=24000...
+Work items=24000: total=171.334317 ms, throughput=140077.017 ops/s
+
+Tuning Kyber1024 kernels for batch=25000...
+Work items=25000: total=179.250693 ms, throughput=139469.475 ops/s
+
+Tuning Kyber1024 kernels for batch=26000...
+Work items=26000: total=184.237611 ms, throughput=141122.108 ops/s
+
+Tuning Kyber1024 kernels for batch=27000...
+Work items=27000: total=183.330862 ms, throughput=147274.713 ops/s
+
+Tuning Kyber1024 kernels for batch=28000...
+Work items=28000: total=195.435578 ms, throughput=143269.717 ops/s
+
+Tuning Kyber1024 kernels for batch=29000...
+Work items=29000: total=198.121033 ms, throughput=146375.171 ops/s
+
+Tuning Kyber1024 kernels for batch=30000...
+Work items=30000: total=203.133573 ms, throughput=147686.075 ops/s
+
+Tuning Kyber1024 kernels for batch=31000...
+Work items=31000: total=222.184558 ms, throughput=139523.648 ops/s
+
+Tuning Kyber1024 kernels for batch=32000...
+Work items=32000: total=226.136262 ms, throughput=141507.601 ops/s
+
+Tuning Kyber1024 kernels for batch=32768...
+Work items=32768: total=229.678133 ms, throughput=142669.220 ops/s
+
+ML-KEM keypair automatic search results
+Batch size | Median total (ms) | Latency (ms/op) | Throughput (ops/s)
+         1 |         30.455369 |      30.455369 |             32.835
+        32 |         30.996098 |       0.968628 |           1032.388
+       128 |         31.746382 |       0.248019 |           4031.956
+       512 |         33.355054 |       0.065147 |          15349.998
+      1000 |         35.507744 |       0.035508 |          28162.871
+      2000 |         40.930179 |       0.020465 |          48863.700
+      3000 |         46.093112 |       0.015364 |          65085.647
+      4000 |         52.846892 |       0.013212 |          75690.355
+      5000 |         57.342898 |       0.011469 |          87194.756
+      6000 |         64.974226 |       0.010829 |          92344.309
+      7000 |         68.917128 |       0.009845 |         101571.267
+      8000 |         73.610796 |       0.009201 |         108679.711
+      9000 |         78.869910 |       0.008763 |         114111.960
+     10000 |         85.979411 |       0.008598 |         116306.914
+     11000 |         90.733977 |       0.008249 |         121233.526
+     12000 |         97.391057 |       0.008116 |         123214.599
+     13000 |        101.535003 |       0.007810 |         128034.664
+     14000 |        109.134405 |       0.007795 |         128282.186
+     15000 |        112.649637 |       0.007510 |         133156.221
+     16000 |        118.379414 |       0.007399 |         135158.635
+     17000 |        123.054781 |       0.007239 |         138149.854
+     18000 |        131.923039 |       0.007329 |         136443.188
+     19000 |        135.754796 |       0.007145 |         139958.223
+     20000 |        138.349740 |       0.006917 |         144561.168
+     21000 |        146.764037 |       0.006989 |         143086.824
+     22000 |        158.852336 |       0.007221 |         138493.399
+     23000 |        162.237358 |       0.007054 |         141767.595
+     24000 |        171.334317 |       0.007139 |         140077.017
+     25000 |        179.250693 |       0.007170 |         139469.475
+     26000 |        184.237611 |       0.007086 |         141122.108
+     27000 |        183.330862 |       0.006790 |         147274.713
+     28000 |        195.435578 |       0.006980 |         143269.717
+     29000 |        198.121033 |       0.006832 |         146375.171
+     30000 |        203.133573 |       0.006771 |         147686.075
+     31000 |        222.184558 |       0.007167 |         139523.648
+     32000 |        226.136262 |       0.007067 |         141507.601
+     32768 |        229.678133 |       0.007009 |         142669.220
+
+Recommended: work items=20000, median total=138.349740 ms, throughput=144561.168 ops/s (97.88% of measured peak 147686.075 ops/s)
+Kernel launch profile (1D grid and block):
+  sha3_512_n                     grid=157, block=128
+  gen_matrix_n                   grid=625, block=32
+  poly_getnoise                  grid=313, block=64
+  polyvec_ntt_n                  grid=40, block=512
+  polyvec_pointwise_acc_n        grid=40, block=512
+  poly_frommont_n                grid=105, block=192
+  polyvec_add_n                  grid=40, block=512
+  polyvec_reduce_n               grid=157, block=128
+  pack_sk_n                      grid=1250, block=16
+  pack_pk_n                      grid=1250, block=16
+  unpack_pk_n                    grid=1250, block=16
+  poly_frommsg_n                 grid=105, block=192
+  polyvec_invntt_n               grid=79, block=256
+  poly_invntt_n                  grid=40, block=512
+  poly_add_n                     grid=40, block=512
+  poly_reduce_n                  grid=105, block=192
+  pack_ciphertext_n              grid=1250, block=16
+  unpack_ciphertext_n            grid=1250, block=16
+  unpack_sk_n                    grid=1250, block=16
+  poly_sub_n                     grid=105, block=192
+  poly_tomsg_n                   grid=105, block=192
+Profile lists all CPA pipeline kernels; each operation launches its own subset.
+Saved optimal profile: pqcuda_kyber_1024_op1.profile
+Run algorithm에서 저장된 benchmark 설정을 선택할 수 있습니다.

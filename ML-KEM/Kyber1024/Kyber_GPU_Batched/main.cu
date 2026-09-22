@@ -13,7 +13,8 @@
 #include "rng.h"
 #include "api.h"
 
-#define	MAX_MARKER_LEN		50
+// KAT values definitions
+#define	MAX_MARKER_LEN		50		
 #define KAT_SUCCESS          0
 #define KAT_FILE_OPEN_ERROR -1
 #define KAT_DATA_ERROR      -3
@@ -22,6 +23,7 @@
 
 /*
 
+// KEM 왕복 동작을 검사하는 기본 정상 동작 테스트 함수
 int main_ind_cca()
 {
 	int                 ret_val;
@@ -116,12 +118,12 @@ void freePolySet(poly_set4* polySet)
 	HANDLE_ERROR(cudaFree(polySet->large_buffer_b));
 }
 
-
-int Hardware()
+// GPU를 탐색하고, 각 GPU의 하드웨어 정보를 출력
+int Hardware() 
 {
 	cudaDeviceProp prop;
 	int count;
-	HANDLE_ERROR(cudaGetDeviceCount(&count));
+	HANDLE_ERROR(cudaGetDeviceCount(&count)); // GPU 개수 확인
 	for (int i = 0; i < count; i++) {
 		HANDLE_ERROR(cudaGetDeviceProperties(&prop, i));
 		printf(" --- General Information for device %d ---\n", i);
@@ -176,8 +178,9 @@ int main()
 
 	printf("\nN_TESTS: %d \n", N_TESTS);
 
-	int gpu_count = Hardware();
+	int gpu_count = Hardware(); // GPU를 탐색하고, 각 GPU의 하드웨어 정보를 출력
 
+	// 저장되어 있는 GPU profile을 기반으로 GPU를 선택하도록 함. (GPU_G1060, GPU_P6000, GPU_940MX, GPU_V100)
 	printf("\n SELECT GPU TYPE (for optimization): ");
 	printf("\n		GPU_G1060 = 0");
 	printf("\n		GPU_P6000 = 1");
@@ -187,7 +190,7 @@ int main()
 
 	char buffer[20];
 
-	auto str = fgets(buffer, 20, stdin);
+	auto str = fgets(buffer, 20, stdin); // GPU profile 선택
 	//auto str = "3";
 
 	if (str != NULL)
@@ -201,7 +204,7 @@ int main()
 		}
 		else
 		{
-			SELECTED_GPU = v;
+			SELECTED_GPU = v; // 0->GPU_G1060, 1->GPU_P6000, 2->GPU_940MX, 3->GPU_V100
 		}
 	}
 	else
@@ -269,7 +272,7 @@ int main()
 	}
 	else
 	{
-		printf("\n SERVER MODE DISABLED [A-B-C]");
+		printf("\n SERVER MODE DISABLED [A-B-C]"); // A : KeyGen, B : Encapsulation, C : Decapsulation
 	}
 
 	// int N_TESTS_D = (N_TESTS);

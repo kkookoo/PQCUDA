@@ -1,0 +1,72 @@
+[  7%] Building CUDA object dilithium/src/fips202/pqcuda_common/CMakeFiles/pqcuda_fips202_cuda_thread.dir/fips202_cuda/thread/fips202.cu.o
+[ 15%] Linking CUDA static library ../../../lib/libpqcuda_fips202_cuda_thread.a
+[ 15%] Built target pqcuda_fips202_cuda_thread
+[ 23%] Building CUDA object CMakeFiles/bench_kyber_original.dir/home/junekoo/PQCUDA/ML-KEM/Kyber1024/Kyber_GPU_Batched/main.cu.o
+[ 38%] Building CUDA object CMakeFiles/bench_kyber_original.dir/home/junekoo/PQCUDA/ML-KEM/Kyber1024/Kyber_GPU_Batched/rng.cu.o
+[ 38%] Building CUDA object CMakeFiles/bench_kyber_original.dir/home/junekoo/PQCUDA/ML-KEM/Kyber1024/Kyber_GPU_Batched/cbd.cu.o
+[ 46%] Building CUDA object CMakeFiles/bench_kyber_original.dir/home/junekoo/PQCUDA/ML-KEM/Kyber1024/Kyber_GPU_Batched/indcpa.cu.o
+[ 53%] Building CUDA object CMakeFiles/bench_kyber_original.dir/home/junekoo/PQCUDA/ML-KEM/Kyber1024/Kyber_GPU_Batched/ntt.cu.o
+[ 61%] Building CUDA object CMakeFiles/bench_kyber_original.dir/home/junekoo/PQCUDA/ML-KEM/Kyber1024/Kyber_GPU_Batched/poly.cu.o
+/home/junekoo/PQCUDA/ML-KEM/Kyber1024/Kyber_GPU_Batched/main.cu: In function ‘int Hardware()’:
+/home/junekoo/PQCUDA/ML-KEM/Kyber1024/Kyber_GPU_Batched/main.cu:144:22: warning: format ‘%llu’ expects argument of type ‘long long unsigned int’, but argument 2 has type ‘size_t’ {aka ‘long unsigned int’} [-Wformat=]
+  144 |                 printf("Total global mem: %llu\n", prop.totalGlobalMem);
+      |                      ^~~~~~~~~~~~~~~~~~~~~~~~~~  ~~~~~~~~~~~~~~~~~~~
+      |                                                       |
+      |                                                       size_t {aka long unsigned int}
+/home/junekoo/PQCUDA/ML-KEM/Kyber1024/Kyber_GPU_Batched/main.cu:145:22: warning: format ‘%llu’ expects argument of type ‘long long unsigned int’, but argument 2 has type ‘size_t’ {aka ‘long unsigned int’} [-Wformat=]
+  145 |                 printf("Total constant Mem: %llu\n", prop.totalConstMem);
+      |                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~  ~~~~~~~~~~~~~~~~~~
+      |                                                         |
+      |                                                         size_t {aka long unsigned int}
+[ 69%] Building CUDA object CMakeFiles/bench_kyber_original.dir/home/junekoo/PQCUDA/ML-KEM/Kyber1024/Kyber_GPU_Batched/polyvec.cu.o
+[ 76%] Building CUDA object CMakeFiles/bench_kyber_original.dir/home/junekoo/PQCUDA/ML-KEM/Kyber1024/Kyber_GPU_Batched/reduce.cu.o
+[ 84%] Building CUDA object CMakeFiles/bench_kyber_original.dir/home/junekoo/PQCUDA/ML-KEM/Kyber1024/Kyber_GPU_Batched/symmetric-fips202.cu.o
+[ 92%] Linking CUDA device code CMakeFiles/bench_kyber_original.dir/cmake_device_link.o
+[100%] Linking CUDA executable bench_kyber_original
+[100%] Built target bench_kyber_original
+[ 14%] Building C object dilithium/src/fips202/pqcuda_common/CMakeFiles/pqcuda_fips202_cpu.dir/fips202_cpu/fips202.c.o
+[ 14%] Building CUDA object dilithium/src/CMakeFiles/cuDilithium2.dir/ntt.cu.o
+[ 21%] Building CUDA object dilithium/src/fips202/pqcuda_common/CMakeFiles/pqcuda_fips202_cuda_warp.dir/fips202_cuda/warp/fips202.cu.o
+[ 28%] Building CUDA object dilithium/src/CMakeFiles/cuDilithium2.dir/api.cu.o
+[ 35%] Linking C static library ../../../lib/libpqcuda_fips202_cpu.a
+[ 35%] Built target pqcuda_fips202_cpu
+[ 42%] Building CUDA object dilithium/src/CMakeFiles/cuDilithium2.dir/keypair.cu.o
+[ 50%] Linking CUDA static library ../../../lib/libpqcuda_fips202_cuda_warp.a
+[ 50%] Built target pqcuda_fips202_cuda_warp
+[ 57%] Building CUDA object dilithium/src/CMakeFiles/cuDilithium2.dir/sign.cu.o
+[ 64%] Building CUDA object dilithium/src/CMakeFiles/cuDilithium2.dir/verify.cu.o
+[ 71%] Linking CUDA static library ../lib/libcuDilithium2.a
+[ 71%] Built target cuDilithium2
+[ 85%] Building C object dilithium/benches/CMakeFiles/bench_cuDilithium2.dir/trng.c.o
+[ 85%] Building CUDA object dilithium/benches/CMakeFiles/bench_cuDilithium2.dir/bench_dilithium.cu.o
+[ 92%] Linking CUDA device code CMakeFiles/bench_cuDilithium2.dir/cmake_device_link.o
+[100%] Linking CUDA executable ../bin/bench_cuDilithium2
+[100%] Built target bench_cuDilithium2
+[ 21%] Building CUDA object dilithium/src/CMakeFiles/cuDilithium3.dir/api.cu.o
+[ 28%] Built target pqcuda_fips202_cpu
+[ 21%] Building CUDA object dilithium/src/CMakeFiles/cuDilithium3.dir/ntt.cu.o
+[ 42%] Built target pqcuda_fips202_cuda_warp
+[ 50%] Building CUDA object dilithium/src/CMakeFiles/cuDilithium3.dir/keypair.cu.o
+[ 57%] Building CUDA object dilithium/src/CMakeFiles/cuDilithium3.dir/sign.cu.o
+[ 64%] Building CUDA object dilithium/src/CMakeFiles/cuDilithium3.dir/verify.cu.o
+[ 71%] Linking CUDA static library ../lib/libcuDilithium3.a
+[ 71%] Built target cuDilithium3
+[ 78%] Building CUDA object dilithium/benches/CMakeFiles/bench_cuDilithium3.dir/bench_dilithium.cu.o
+[ 85%] Building C object dilithium/benches/CMakeFiles/bench_cuDilithium3.dir/trng.c.o
+[ 92%] Linking CUDA device code CMakeFiles/bench_cuDilithium3.dir/cmake_device_link.o
+[100%] Linking CUDA executable ../bin/bench_cuDilithium3
+[100%] Built target bench_cuDilithium3
+[ 14%] Building CUDA object dilithium/src/CMakeFiles/cuDilithium5.dir/api.cu.o
+[ 14%] Building CUDA object dilithium/src/CMakeFiles/cuDilithium5.dir/ntt.cu.o
+[ 28%] Built target pqcuda_fips202_cpu
+[ 42%] Built target pqcuda_fips202_cuda_warp
+[ 50%] Building CUDA object dilithium/src/CMakeFiles/cuDilithium5.dir/keypair.cu.o
+[ 57%] Building CUDA object dilithium/src/CMakeFiles/cuDilithium5.dir/sign.cu.o
+[ 64%] Building CUDA object dilithium/src/CMakeFiles/cuDilithium5.dir/verify.cu.o
+[ 71%] Linking CUDA static library ../lib/libcuDilithium5.a
+[ 71%] Built target cuDilithium5
+[ 85%] Building C object dilithium/benches/CMakeFiles/bench_cuDilithium5.dir/trng.c.o
+[ 85%] Building CUDA object dilithium/benches/CMakeFiles/bench_cuDilithium5.dir/bench_dilithium.cu.o
+[ 92%] Linking CUDA device code CMakeFiles/bench_cuDilithium5.dir/cmake_device_link.o
+[100%] Linking CUDA executable ../bin/bench_cuDilithium5
+[100%] Built target bench_cuDilithium5

@@ -1,0 +1,7 @@
+n_streams,function,trials,min,mean,median,stddev.
+keypair stream,10,64926.5,65951,557.684
+sign stream,10,178430,182566,3157.44
+verify stream,10,79963.5,80708,974.932
+keypair batch,10,70320.1,70904.8,13770.9
+sign_batch,10,135568,137043,1314.14
+verify batch,10,72203.9,72955.9,398.869

@@ -1,0 +1,8 @@
+Internal ctest changing into directory: /home/junekoo/PQCUDA/PQHybrid/build-cuda126
+Test project /home/junekoo/PQCUDA/PQHybrid/build-cuda126
+    Start 1: kyber_kat
+1/1 Test #1: kyber_kat ........................   Passed    0.74 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.74 sec

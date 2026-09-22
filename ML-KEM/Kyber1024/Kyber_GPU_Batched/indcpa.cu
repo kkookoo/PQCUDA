@@ -17,6 +17,31 @@
 
 #include "main.h"
 
+__global__ void pack_pk_n(int COUNT, unsigned char* r, polyvec* pk,
+                          unsigned char* seed);
+__global__ void unpack_pk_n(int COUNT, polyvec* pk, unsigned char* seed,
+                            unsigned char* packedpk);
+__global__ void pack_sk_n(int COUNT, unsigned char* r, polyvec* sk);
+__global__ void unpack_sk_n(int COUNT, polyvec* sk, unsigned char* packedsk);
+__global__ void pack_ciphertext_n(int COUNT, unsigned char* r, polyvec* b,
+                                  poly* v);
+__global__ void unpack_ciphertext_n(int COUNT, polyvec* b, poly* v,
+                                    unsigned char* c);
+__global__ void gen_matrix_n(int COUNT, polyvec* a, unsigned char* seed,
+                             int transposed, unsigned char* large_bufA);
+
+// Expand packed 32-byte entropy into two packed seed arrays. Keeping input
+// separate also prevents cross-thread overlap during 32 -> 64 byte expansion.
+__global__ void keypair_seed_n(int count, unsigned char *output, unsigned char *input) {
+    const int item = blockIdx.x * blockDim.x + threadIdx.x;
+    if (item >= count) return;
+    unsigned char expanded[64];
+    sha3_512(expanded, input + item * KYBER_SYMBYTES, KYBER_SYMBYTES);
+    for (int i = 0; i < KYBER_SYMBYTES; ++i) {
+        output[item * KYBER_SYMBYTES + i] = expanded[i];
+        output[(count + item) * KYBER_SYMBYTES + i] = expanded[KYBER_SYMBYTES + i];
+    }
+}
 
 int MP_COUNT = 9;
 
@@ -32,7 +57,7 @@ void indcpa_set_launch_config(int grid_size, int block_size)
 namespace {
 
 const char *const KERNEL_NAMES[INDCPA_KERNEL_COUNT] = {
-    "sha3_512_n", "gen_matrix_n", "poly_getnoise", "polyvec_ntt_n",
+    "keypair_seed_n", "gen_matrix_n", "poly_getnoise", "polyvec_ntt_n",
     "polyvec_pointwise_acc_n", "poly_frommont_n", "polyvec_add_n",
     "polyvec_reduce_n", "pack_sk_n", "pack_pk_n", "unpack_pk_n",
     "poly_frommsg_n", "polyvec_invntt_n", "poly_invntt_n", "poly_add_n",
@@ -43,6 +68,7 @@ const char *const KERNEL_NAMES[INDCPA_KERNEL_COUNT] = {
 int tuned_block_sizes[INDCPA_KERNEL_COUNT] = {};
 float tuning_elapsed_ms[INDCPA_KERNEL_COUNT] = {};
 int tuning_samples[INDCPA_KERNEL_COUNT] = {};
+bool tuning_kernel_eligible[INDCPA_KERNEL_COUNT] = {};
 bool tuning_enabled = false;
 int tuning_candidate_block_size = 0;
 cudaEvent_t tuning_start_event = nullptr;
@@ -52,10 +78,68 @@ bool valid_kernel_id(int kernel_id) {
     return kernel_id >= 0 && kernel_id < INDCPA_KERNEL_COUNT;
 }
 
+int kernel_max_block_size(int kernel_id) {
+    if (!valid_kernel_id(kernel_id)) return -1;
+
+    cudaFuncAttributes attributes{};
+    cudaError_t result = cudaErrorInvalidValue;
+    switch (kernel_id) {
+    case INDCPA_KERNEL_SHA3_512:
+        result = cudaFuncGetAttributes(&attributes, keypair_seed_n); break;
+    case INDCPA_KERNEL_GEN_MATRIX:
+        result = cudaFuncGetAttributes(&attributes, gen_matrix_n); break;
+    case INDCPA_KERNEL_POLY_GETNOISE:
+        result = cudaFuncGetAttributes(&attributes, poly_getnoise); break;
+    case INDCPA_KERNEL_POLYVEC_NTT:
+        result = cudaFuncGetAttributes(&attributes, polyvec_ntt_n); break;
+    case INDCPA_KERNEL_POLYVEC_POINTWISE_ACC:
+        result = cudaFuncGetAttributes(&attributes,
+                                       polyvec_pointwise_acc_n); break;
+    case INDCPA_KERNEL_POLY_FROMMONT:
+        result = cudaFuncGetAttributes(&attributes, poly_frommont_n); break;
+    case INDCPA_KERNEL_POLYVEC_ADD:
+        result = cudaFuncGetAttributes(&attributes, polyvec_add_n); break;
+    case INDCPA_KERNEL_POLYVEC_REDUCE:
+        result = cudaFuncGetAttributes(&attributes, polyvec_reduce_n); break;
+    case INDCPA_KERNEL_PACK_SK:
+        result = cudaFuncGetAttributes(&attributes, pack_sk_n); break;
+    case INDCPA_KERNEL_PACK_PK:
+        result = cudaFuncGetAttributes(&attributes, pack_pk_n); break;
+    case INDCPA_KERNEL_UNPACK_PK:
+        result = cudaFuncGetAttributes(&attributes, unpack_pk_n); break;
+    case INDCPA_KERNEL_POLY_FROMMSG:
+        result = cudaFuncGetAttributes(&attributes, poly_frommsg_n); break;
+    case INDCPA_KERNEL_POLYVEC_INVNTT:
+        result = cudaFuncGetAttributes(&attributes, polyvec_invntt_n); break;
+    case INDCPA_KERNEL_POLY_INVNTT:
+        result = cudaFuncGetAttributes(&attributes, poly_invntt_n); break;
+    case INDCPA_KERNEL_POLY_ADD:
+        result = cudaFuncGetAttributes(&attributes, poly_add_n); break;
+    case INDCPA_KERNEL_POLY_REDUCE:
+        result = cudaFuncGetAttributes(&attributes, poly_reduce_n); break;
+    case INDCPA_KERNEL_PACK_CIPHERTEXT:
+        result = cudaFuncGetAttributes(&attributes, pack_ciphertext_n); break;
+    case INDCPA_KERNEL_UNPACK_CIPHERTEXT:
+        result = cudaFuncGetAttributes(&attributes,
+                                       unpack_ciphertext_n); break;
+    case INDCPA_KERNEL_UNPACK_SK:
+        result = cudaFuncGetAttributes(&attributes, unpack_sk_n); break;
+    case INDCPA_KERNEL_POLY_SUB:
+        result = cudaFuncGetAttributes(&attributes, poly_sub_n); break;
+    case INDCPA_KERNEL_POLY_TOMSG:
+        result = cudaFuncGetAttributes(&attributes, poly_tomsg_n); break;
+    default:
+        return -1;
+    }
+    return result == cudaSuccess ? attributes.maxThreadsPerBlock : -1;
+}
+
 int selected_block_size(int kernel_id, int g1060, int p6000,
                         int g940mx, int v100) {
     if (launch_block_override > 0) return launch_block_override;
-    if (tuning_enabled) return tuning_candidate_block_size;
+    if (tuning_enabled && valid_kernel_id(kernel_id) &&
+        tuning_kernel_eligible[kernel_id])
+        return tuning_candidate_block_size;
     if (valid_kernel_id(kernel_id) && tuned_block_sizes[kernel_id] > 0)
         return tuned_block_sizes[kernel_id];
     if (SELECTED_GPU == GPU_G1060) return g1060;
@@ -65,12 +149,14 @@ int selected_block_size(int kernel_id, int g1060, int p6000,
 }
 
 void tuning_start(int kernel_id, cudaStream_t stream) {
-    if (tuning_enabled && valid_kernel_id(kernel_id))
+    if (tuning_enabled && valid_kernel_id(kernel_id) &&
+        tuning_kernel_eligible[kernel_id])
         cudaEventRecord(tuning_start_event, stream);
 }
 
 void tuning_stop(int kernel_id, cudaStream_t stream) {
-    if (!tuning_enabled || !valid_kernel_id(kernel_id)) return;
+    if (!tuning_enabled || !valid_kernel_id(kernel_id) ||
+        !tuning_kernel_eligible[kernel_id]) return;
     cudaEventRecord(tuning_stop_event, stream);
     cudaEventSynchronize(tuning_stop_event);
     float milliseconds = 0.0f;
@@ -87,6 +173,9 @@ int indcpa_tuning_begin(int candidate_block_size) {
     for (int i = 0; i < INDCPA_KERNEL_COUNT; ++i) {
         tuning_elapsed_ms[i] = 0.0f;
         tuning_samples[i] = 0;
+        const int maximum = kernel_max_block_size(i);
+        if (maximum < 0) return -1;
+        tuning_kernel_eligible[i] = candidate_block_size <= maximum;
     }
     if (cudaEventCreate(&tuning_start_event) != cudaSuccess) return -1;
     if (cudaEventCreate(&tuning_stop_event) != cudaSuccess) {
@@ -108,6 +197,13 @@ void indcpa_tuning_end(void) {
     tuning_stop_event = nullptr;
 }
 
+// Total time for every invocation of this kernel in one pipeline run.
+float indcpa_tuning_total_ms(int kernel_id) {
+    if (!valid_kernel_id(kernel_id) || tuning_samples[kernel_id] == 0)
+        return -1.0f;
+    return tuning_elapsed_ms[kernel_id];
+}
+
 float indcpa_tuning_average_ms(int kernel_id) {
     if (!valid_kernel_id(kernel_id) || tuning_samples[kernel_id] == 0)
         return -1.0f;
@@ -127,6 +223,10 @@ int indcpa_get_kernel_block_size(int kernel_id) {
 
 const char *indcpa_get_kernel_name(int kernel_id) {
     return valid_kernel_id(kernel_id) ? KERNEL_NAMES[kernel_id] : nullptr;
+}
+
+int indcpa_get_kernel_max_block_size(int kernel_id) {
+    return kernel_max_block_size(kernel_id);
 }
 
 #define TIMING_START(KERNEL_ID, GP_1060_SZ, GP_P6000_SZ, GP_940MX_SZ, GP3_V100_SZ) \
@@ -542,8 +642,8 @@ void indcpa_keypair(int COUNT, poly_set4* ps, unsigned char* pk, unsigned char* 
 
 	// unsigned char* buf = ps->seed;
 
-	unsigned char* publicseed = rng_buf;
-	unsigned char* noiseseed = rng_buf + KYBER_SYMBYTES;
+	unsigned char* publicseed = ps->seed;
+	unsigned char* noiseseed = ps->seed + COUNT * KYBER_SYMBYTES;
 	int i;
 	unsigned char nonce = 0;
 
@@ -553,7 +653,7 @@ void indcpa_keypair(int COUNT, poly_set4* ps, unsigned char* pk, unsigned char* 
 
 	// GPU profile에 따른 kernel launch configuration 설정, 모든 kernel은 하나의 thread가 하나의 instance를 처리하도록 설계
 	TIMING_START(INDCPA_KERNEL_SHA3_512, 64, 32, 32, 32)
-		sha3_512_n << < gridSize, blockSize, 0, stream >> > (COUNT, rng_buf, rng_buf, KYBER_SYMBYTES);
+		keypair_seed_n << < gridSize, blockSize, 0, stream >> > (COUNT, ps->seed, rng_buf);
 	TIMING_END(INDCPA_KERNEL_SHA3_512)
 
 		TIMING_START(INDCPA_KERNEL_GEN_MATRIX, 128, 192, 192, 256)
